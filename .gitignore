@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .playwright-cli/
+.learnings/
+.impeccable/live/sessions/
 *.log
 *.tsbuildinfo
 vite.config.js

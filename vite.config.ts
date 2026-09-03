@@ -6,5 +6,13 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    deps: {
+      optimizer: {
+        web: {
+          enabled: true,
+          include: ["@fluentui/react-components"],
+        },
+      },
+    },
   },
 });
