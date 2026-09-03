@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
@@ -19,9 +19,41 @@ beforeAll(() => {
   });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("ontology workspace", () => {
+  it("keeps tooltip portals separate from the page layout", () => {
+    vi.useFakeTimers();
+    render(<App />);
+    fireEvent.focus(screen.getByRole("button", { name: "切换主题" }));
+    act(() => vi.advanceTimersByTime(500));
+    const tooltip = screen.getByRole("tooltip", { hidden: true });
+    expect(tooltip.closest(".app-root")).toBeNull();
+    expect(document.querySelectorAll(".app-root")).toHaveLength(1);
+  });
+
+  it("keeps dialog portals themed without inheriting the page layout", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "切换主题" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建对象" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.closest(".app-root")).toBeNull();
+    expect(dialog.closest(".app-theme")).toHaveClass("dark");
+  });
+
+  it("keeps a single desktop navigation accessible when collapsed", () => {
+    render(<App />);
+    expect(screen.getAllByRole("navigation")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "收起侧边栏" }));
+    const navigation = screen.getByRole("navigation", { name: "主要导航" });
+    fireEvent.click(within(navigation).getByRole("button", { name: "语义测试" }));
+    expect(screen.getByRole("heading", { name: "语义测试" })).toBeInTheDocument();
+    expect(within(navigation).getByRole("button", { name: "语义测试" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("opens the ontology directly and filters its catalog", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: "业务本体" })).toBeInTheDocument();

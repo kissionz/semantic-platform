@@ -116,12 +116,10 @@ function Sidebar({ page, setPage, collapsed, setCollapsed }: { page: Page; setPa
         {nav.map((item) => {
           const Icon = item.icon;
           return (
-            <Tooltip key={item.id} content={collapsed ? item.label : ""} relationship="label">
-              <button className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => setPage(item.id)}>
-                <Icon size={20} weight={page === item.id ? "fill" : "regular"} />
-                {!collapsed && <span>{item.label}</span>}
-              </button>
-            </Tooltip>
+            <button key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => setPage(item.id)} aria-label={item.label} aria-current={page === item.id ? "page" : undefined}>
+              <Icon size={20} weight={page === item.id ? "fill" : "regular"} />
+              {!collapsed && <span>{item.label}</span>}
+            </button>
           );
         })}
       </nav>
@@ -135,20 +133,10 @@ function Sidebar({ page, setPage, collapsed, setCollapsed }: { page: Page; setPa
   );
 }
 
-function MobileNav({ page, setPage }: { page: Page; setPage: (page: Page) => void }) {
-  return <nav className="mobile-nav" aria-label="移动端主要导航">
-    {nav.map((item) => {
-      const Icon = item.icon;
-      return <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => setPage(item.id)}><Icon size={19} weight={page === item.id ? "fill" : "regular"} /><span>{item.label}</span></button>;
-    })}
-  </nav>;
-}
-
 function Header({ page, dark, setDark }: { page: Page; dark: boolean; setDark: (value: boolean) => void }) {
   const title = nav.find((item) => item.id === page)?.label ?? "语义平台";
   return (
     <header className="topbar">
-      <div className="mobile-brand"><Logo /><strong>{title}</strong></div>
       <div className="breadcrumb"><span>retail</span><CaretRight size={13} /><strong>{title}</strong></div>
       <div className="top-actions">
         <Tooltip content={dark ? "切换浅色模式" : "切换深色模式"} relationship="label">
@@ -333,15 +321,17 @@ export default function App() {
     setEvents((current) => [...current, auditEvent(current.length + 1, "publish", "ONTOLOGY_PUBLISHED", `retail v${snapshot.version + 1}`)]);
   };
 
-  return <FluentProvider theme={dark ? semanticDarkTheme : semanticLightTheme} className={dark ? "app-root dark" : "app-root"}>
-    <Sidebar page={page} setPage={setPage} collapsed={collapsed} setCollapsed={setCollapsed} />
-    <div className="app-body">
-      <Header page={page} dark={dark} setDark={setDark} />
-      {page === "ontology" && <Ontology snapshot={snapshot} setSnapshot={(next) => { setSnapshot(next); setIssues(null); }} issues={issues} onValidate={validate} onPublish={publish} />}
-      {page === "lab" && <SemanticLab snapshot={snapshot} addAudit={(next) => setEvents((current) => [...current, ...next])} />}
-      {page === "audit" && <Audit events={events} />}
-      {page === "api" && <ApiPage />}
+  return <FluentProvider theme={dark ? semanticDarkTheme : semanticLightTheme} className={dark ? "app-theme dark" : "app-theme"}>
+    {/* FluentProvider copies its classes to portals; keep page layout on this child. */}
+    <div className="app-root">
+      <Sidebar page={page} setPage={setPage} collapsed={collapsed} setCollapsed={setCollapsed} />
+      <div className="app-body">
+        <Header page={page} dark={dark} setDark={setDark} />
+        {page === "ontology" && <Ontology snapshot={snapshot} setSnapshot={(next) => { setSnapshot(next); setIssues(null); }} issues={issues} onValidate={validate} onPublish={publish} />}
+        {page === "lab" && <SemanticLab snapshot={snapshot} addAudit={(next) => setEvents((current) => [...current, ...next])} />}
+        {page === "audit" && <Audit events={events} />}
+        {page === "api" && <ApiPage />}
+      </div>
     </div>
-    <MobileNav page={page} setPage={setPage} />
   </FluentProvider>;
 }
