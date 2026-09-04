@@ -30,9 +30,12 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 describe("independent platform shell", () => {
   it("loads the complete desktop navigation", async () => {
     render(<App/>);
-    expect(await screen.findByRole("heading",{name:"数据目录"})).toBeInTheDocument();
+    expect(await screen.findByRole("heading",{name:"业务本体"})).toBeInTheDocument();
     const navigation=screen.getByRole("navigation",{name:"主要导航"});
-    expect(within(navigation).getAllByRole("button")).toHaveLength(6);
+    expect(within(navigation).getByRole("button",{name:"本体"})).toBeInTheDocument();
+    expect(within(navigation).getByRole("button",{name:"系统管理"})).toHaveAttribute("aria-expanded","true");
+    expect(within(navigation).getAllByRole("button")).toHaveLength(7);
+    expect(screen.queryByText("命名空间")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button",{name:"收起侧边栏"}));
     expect(screen.getAllByRole("navigation")).toHaveLength(1);
   });
@@ -46,6 +49,8 @@ describe("independent platform shell", () => {
 
   it("requires a configured source for exact table lookup", async () => {
     render(<App/>);
+    const navigation=await screen.findByRole("navigation",{name:"主要导航"});
+    fireEvent.click(within(navigation).getByRole("button",{name:"数据目录"}));
     const input=await screen.findByPlaceholderText("输入准确的 MaxCompute 表名");
     fireEvent.change(input,{target:{value:"fact_sales"}});
     expect(screen.getByRole("button",{name:"查找表"})).toBeDisabled();
@@ -85,7 +90,7 @@ describe("independent platform shell", () => {
   it("keeps dialogs themed without inheriting page layout", async () => {
     render(<App/>);
     const navigation=await screen.findByRole("navigation",{name:"主要导航"});
-    fireEvent.click(within(navigation).getByRole("button",{name:"系统管理"})); fireEvent.click(screen.getByRole("button",{name:"切换主题"})); fireEvent.click(screen.getByRole("button",{name:"添加用户"}));
+    fireEvent.click(within(navigation).getByRole("button",{name:"用户管理"})); fireEvent.click(screen.getByRole("button",{name:"切换主题"})); fireEvent.click(screen.getByRole("button",{name:"添加用户"}));
     await waitFor(()=>expect(screen.getByRole("dialog").closest(".app-root")).toBeNull());
     expect(screen.getByRole("dialog").closest(".app-theme")).toHaveClass("dark");
   });

@@ -31,6 +31,7 @@ import {
   ClockCounterClockwise,
   Code,
   Database,
+  GearSix,
   GitBranch,
   ListMagnifyingGlass,
   MagnifyingGlass,
@@ -49,7 +50,7 @@ import { validateSnapshot } from "./domain/engine";
 import type { Metric, ObjectType, OntologyRelation, OntologySnapshot, ValidationIssue } from "./domain/types";
 import { api, type Audit as AuditRecord, type Bootstrap, type Source, type Table } from "./api";
 
-type Page = "data" | "ontology" | "query" | "audit" | "api" | "system";
+type Page = "ontology" | "data" | "query" | "audit" | "api" | "users";
 type EntityTab = "objects" | "metrics" | "relations";
 
 const objectTypeLabels: Record<ObjectType, string> = {
@@ -70,14 +71,20 @@ const semanticBrand: BrandVariants = {
 const semanticLightTheme = createLightTheme(semanticBrand);
 const semanticDarkTheme = createDarkTheme(semanticBrand);
 
-const nav = [
-  { id: "data" as const, label: "数据目录", icon: Database },
+const primaryNav = [
   { id: "ontology" as const, label: "本体", icon: CirclesThreePlus },
+];
+
+const systemNav = [
+  { id: "data" as const, label: "数据目录", icon: Database },
   { id: "query" as const, label: "查询工作台", icon: ListMagnifyingGlass },
   { id: "audit" as const, label: "审计", icon: ClockCounterClockwise },
   { id: "api" as const, label: "API", icon: BracketsCurly },
-  { id: "system" as const, label: "系统管理", icon: Users },
+  { id: "users" as const, label: "用户管理", icon: Users },
 ];
+
+const pageLabels = new Map([...primaryNav, ...systemNav].map((item) => [item.id, item.label]));
+const systemPages = new Set<Page>(systemNav.map((item) => item.id));
 
 function Logo() {
   return <div className="logo-mark" aria-label="语义平台">S</div>;
@@ -90,14 +97,15 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function Sidebar({ page, setPage, collapsed, setCollapsed }: { page: Page; setPage: (page: Page) => void; collapsed: boolean; setCollapsed: (value: boolean) => void }) {
+  const [systemOpen, setSystemOpen] = useState(true);
   return (
     <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
       <div className="brand">
         <Logo />
-        {!collapsed && <div><strong>语义平台</strong><span>default</span></div>}
+        {!collapsed && <div><strong>语义平台</strong><span>MaxCompute</span></div>}
       </div>
       <nav aria-label="主要导航">
-        {nav.map((item) => {
+        {primaryNav.map((item) => {
           const Icon = item.icon;
           return (
             <button key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => setPage(item.id)} aria-label={item.label} aria-current={page === item.id ? "page" : undefined}>
@@ -106,9 +114,20 @@ function Sidebar({ page, setPage, collapsed, setCollapsed }: { page: Page; setPa
             </button>
           );
         })}
+        <div className="nav-group">
+          <button className={`nav-item nav-group-trigger ${systemPages.has(page) ? "contains-page" : ""}`} onClick={() => setSystemOpen((value) => !value)} aria-expanded={systemOpen} aria-controls="system-navigation">
+            <GearSix size={20} weight={systemPages.has(page) ? "fill" : "regular"} />
+            {!collapsed && <><span>系统管理</span><CaretDown className={systemOpen ? "expanded" : ""} size={14} /></>}
+          </button>
+          {systemOpen && <div id="system-navigation" className="nav-submenu">
+            {systemNav.map((item) => {
+              const Icon = item.icon;
+              return <button key={item.id} className={`nav-item nav-subitem ${page === item.id ? "active" : ""}`} onClick={() => setPage(item.id)} aria-label={item.label} aria-current={page === item.id ? "page" : undefined}><Icon size={18} weight={page === item.id ? "fill" : "regular"} />{!collapsed && <span>{item.label}</span>}</button>;
+            })}
+          </div>}
+        </div>
       </nav>
       <div className="sidebar-footer">
-        {!collapsed && <div className="workspace-switch"><Database size={18} /><div><span>命名空间</span><strong>default</strong></div><CaretDown size={14} /></div>}
         <button className="collapse-button" onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"}>
           <SidebarSimple size={19} />
         </button>
@@ -118,10 +137,10 @@ function Sidebar({ page, setPage, collapsed, setCollapsed }: { page: Page; setPa
 }
 
 function Header({ page, dark, setDark }: { page: Page; dark: boolean; setDark: (value: boolean) => void }) {
-  const title = nav.find((item) => item.id === page)?.label ?? "语义平台";
+  const title = pageLabels.get(page) ?? "语义平台";
   return (
     <header className="topbar">
-      <div className="breadcrumb"><span>default</span><CaretRight size={13} /><strong>{title}</strong></div>
+      <div className="breadcrumb">{systemPages.has(page) && <><span>系统管理</span><CaretRight size={13} /></>}<strong>{title}</strong></div>
       <div className="top-actions">
         <Tooltip content={dark ? "切换浅色模式" : "切换深色模式"} relationship="label">
           <Button appearance="subtle" icon={dark ? <Sun /> : <Moon />} onClick={() => setDark(!dark)} aria-label="切换主题" />
@@ -238,7 +257,7 @@ function Login({onDone}:{onDone:()=>Promise<void>}){const[username,setUsername]=
 
 function DataPage({source,tables,refresh}:{source:Source|null;tables:Table[];refresh:()=>Promise<void>}){const[form,setForm]=useState({name:source?.name||"MaxCompute",endpoint:source?.endpoint||"",project:source?.project||"",schema:source?.schema||"",quota:source?.quota||"",accessId:"",accessKey:"",stsToken:""});const[tableName,setTableName]=useState("");const[found,setFound]=useState<Awaited<ReturnType<typeof api.findTable>>["table"]>();const[busy,setBusy]=useState("");const[message,setMessage]=useState("");const[error,setError]=useState("");const update=(key:string,value:string)=>setForm(current=>({...current,[key]:value}));const act=async(kind:string,task:()=>Promise<unknown>)=>{setBusy(kind);setMessage("");setError("");try{await task();setMessage(kind==="test"?"连接成功":kind==="save"?"数据源已保存":"操作完成");await refresh();}catch(reason){setError(reason instanceof Error?reason.message:"操作失败");}finally{setBusy("");}};const find=()=>act("find",async()=>{const result=await api.findTable(tableName);setFound(result.table);if(!result.found)setError("没有找到该表，请检查表名与 Schema");});const add=()=>act("add",async()=>{await api.addTable(tableName);setFound(undefined);setTableName("");});return <main className="page data-page"><section className="compact-page-header"><div><h1>数据目录</h1><div className="header-status"><Badge color={source?.status==="CONNECTED"?"success":"warning"}>{source?.status==="CONNECTED"?"已连接":"待配置"}</Badge></div></div></section><div className="data-layout"><section className="panel connection-panel"><div className="workspace-panel-heading"><h2>MaxCompute 数据源</h2><PlugsConnected size={20}/></div><div className="form-grid"><Field label="连接名称"><Input value={form.name} onChange={(_,d)=>update("name",d.value)}/></Field><Field label="Endpoint"><Input value={form.endpoint} onChange={(_,d)=>update("endpoint",d.value)} placeholder="https://service.cn-shanghai.maxcompute.aliyun.com/api"/></Field><Field label="Project"><Input value={form.project} onChange={(_,d)=>update("project",d.value)}/></Field><Field label="Schema"><Input value={form.schema} onChange={(_,d)=>update("schema",d.value)} placeholder="可选"/></Field><Field label="Quota"><Input value={form.quota} onChange={(_,d)=>update("quota",d.value)} placeholder="可选"/></Field><Field label="AccessKey ID"><Input value={form.accessId} onChange={(_,d)=>update("accessId",d.value)} placeholder={source?.credentialStored?"已安全保存，留空保持不变":""}/></Field><Field label="AccessKey Secret"><Input type="password" value={form.accessKey} onChange={(_,d)=>update("accessKey",d.value)} placeholder={source?.credentialStored?"已安全保存，留空保持不变":""}/></Field><Field label="STS Token"><Input type="password" value={form.stsToken} onChange={(_,d)=>update("stsToken",d.value)} placeholder="可选"/></Field></div><div className="panel-actions"><Button appearance="secondary" disabled={!!busy} onClick={()=>act("test",()=>api.testSource(form))}>测试连接</Button><Button appearance="primary" disabled={!!busy} onClick={()=>act("save",()=>api.saveSource(form))}>{busy==="save"?"正在保存":"保存数据源"}</Button></div></section><section className="panel catalog-panel"><div className="workspace-panel-heading"><h2>按表名添加</h2><span>{tables.length}</span></div><div className="table-lookup"><Input value={tableName} onChange={(_,d)=>{setTableName(d.value);setFound(undefined)}} placeholder="输入准确的 MaxCompute 表名"/><Button appearance="primary" disabled={!source||!tableName||!!busy} onClick={find}>查找表</Button></div>{found&&<div className="found-table"><div><Database size={22}/><div><strong>{found.name}</strong><span>{found.type} · {found.columns.length} 个字段</span></div></div><Button appearance="secondary" onClick={add} disabled={!!busy}>添加到目录</Button></div>}<div className="managed-table-list">{tables.length?tables.map(table=><div className="managed-table" key={table.id}><Database size={18}/><div><strong>{table.name}</strong><span>{table.project} · {table.columns.length} 个字段 · {new Date(table.addedAt).toLocaleString("zh-CN")}</span></div><Badge appearance="tint">已添加</Badge></div>):<div className="catalog-empty-state"><Database size={28}/><span>输入准确表名开始添加</span></div>}</div></section></div>{message&&<div className="toast-line success">{message}</div>}{error&&<div className="toast-line error">{error}</div>}</main>}
 
-function SystemPage({data,refresh}:{data:Bootstrap;refresh:()=>Promise<void>}){const[open,setOpen]=useState(false);const[form,setForm]=useState({username:"",displayName:"",role:"ANALYST",password:""});const[error,setError]=useState("");const create=async()=>{try{await api.createUser(form);setOpen(false);setForm({username:"",displayName:"",role:"ANALYST",password:""});await refresh();}catch(reason){setError(reason instanceof Error?reason.message:"创建失败")}};return <main className="page system-page"><section className="compact-page-header"><div><h1>系统管理</h1></div>{data.principal.role==="ADMIN"&&<Button appearance="primary" icon={<Plus/>} onClick={()=>setOpen(true)}>添加用户</Button>}</section><div className="system-grid"><section className="panel"><div className="workspace-panel-heading"><h2>用户与角色</h2><span>{data.users.length}</span></div><div className="user-list">{data.users.map(user=><div key={user.id}><span className="user-avatar">{user.displayName.slice(0,1)}</span><div><strong>{user.displayName}</strong><small>{user.username}</small></div><Badge appearance="tint">{user.role}</Badge></div>)}</div></section><section className="panel system-facts"><div className="workspace-panel-heading"><h2>运行配置</h2></div><dl className="definition-list"><div><dt>数据源</dt><dd>{data.source?.name||"未配置"}</dd></div><div><dt>物理目录</dt><dd>{data.tables.length} 张表</dd></div><div><dt>发布版本</dt><dd>{data.published?`v${data.published.version}`:"未发布"}</dd></div><div><dt>凭据存储</dt><dd>AES-256-GCM</dd></div></dl></section></div><Dialog open={open} onOpenChange={(_,d)=>setOpen(d.open)}><DialogSurface><DialogBody><DialogTitle>添加平台用户</DialogTitle><DialogContent className="dialog-form"><Field label="登录账号"><Input value={form.username} onChange={(_,d)=>setForm(v=>({...v,username:d.value}))}/></Field><Field label="显示名称"><Input value={form.displayName} onChange={(_,d)=>setForm(v=>({...v,displayName:d.value}))}/></Field><Field label="角色"><Select value={form.role} onChange={e=>setForm(v=>({...v,role:e.target.value}))}><option value="ADMIN">管理员</option><option value="MODELER">建模者</option><option value="ANALYST">分析者</option><option value="VIEWER">只读</option></Select></Field><Field label="初始密码"><Input type="password" value={form.password} onChange={(_,d)=>setForm(v=>({...v,password:d.value}))}/></Field>{error&&<div className="form-error">{error}</div>}</DialogContent><DialogActions><Button appearance="secondary" onClick={()=>setOpen(false)}>取消</Button><Button appearance="primary" onClick={create}>创建用户</Button></DialogActions></DialogBody></DialogSurface></Dialog></main>}
+function UserManagementPage({data,refresh}:{data:Bootstrap;refresh:()=>Promise<void>}){const[open,setOpen]=useState(false);const[form,setForm]=useState({username:"",displayName:"",role:"ANALYST",password:""});const[error,setError]=useState("");const create=async()=>{try{await api.createUser(form);setOpen(false);setForm({username:"",displayName:"",role:"ANALYST",password:""});await refresh();}catch(reason){setError(reason instanceof Error?reason.message:"创建失败")}};return <main className="page user-management-page"><section className="compact-page-header"><div><h1>用户管理</h1><div className="header-status"><span>{data.users.length} 位用户</span></div></div>{data.principal.role==="ADMIN"&&<Button appearance="primary" icon={<Plus/>} onClick={()=>setOpen(true)}>添加用户</Button>}</section><section className="panel user-management-panel"><div className="user-table-head"><span>用户</span><span>登录账号</span><span>角色</span></div><div className="user-list">{data.users.map(user=><div key={user.id}><span className="user-avatar">{user.displayName.slice(0,1)}</span><div><strong>{user.displayName}</strong><small>{user.username}</small></div><span className="user-account">{user.username}</span><Badge appearance="tint">{user.role}</Badge></div>)}</div></section><Dialog open={open} onOpenChange={(_,d)=>setOpen(d.open)}><DialogSurface><DialogBody><DialogTitle>添加平台用户</DialogTitle><DialogContent className="dialog-form"><Field label="登录账号"><Input value={form.username} onChange={(_,d)=>setForm(v=>({...v,username:d.value}))}/></Field><Field label="显示名称"><Input value={form.displayName} onChange={(_,d)=>setForm(v=>({...v,displayName:d.value}))}/></Field><Field label="角色"><Select value={form.role} onChange={e=>setForm(v=>({...v,role:e.target.value}))}><option value="ADMIN">管理员</option><option value="MODELER">建模者</option><option value="ANALYST">分析者</option><option value="VIEWER">只读</option></Select></Field><Field label="初始密码"><Input type="password" value={form.password} onChange={(_,d)=>setForm(v=>({...v,password:d.value}))}/></Field>{error&&<div className="form-error">{error}</div>}</DialogContent><DialogActions><Button appearance="secondary" onClick={()=>setOpen(false)}>取消</Button><Button appearance="primary" onClick={create}>创建用户</Button></DialogActions></DialogBody></DialogSurface></Dialog></main>}
 
 function Audit({ events }: { events: AuditRecord[] }) {
   return <main className="page audit-page"><section className="compact-page-header"><div><h1>审计日志</h1></div></section><section className="panel audit-table"><div className="audit-row audit-head"><span>时间</span><span>操作者</span><span>动作</span><span>资源</span><span>结果</span><span>耗时</span></div>{events.map(event => <div className="audit-row" key={event.id}><span>{new Date(event.at).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit",month:"2-digit",day:"2-digit" })}</span><span>{event.actor}</span><span><strong>{event.action}</strong><small>{event.detail}</small></span><span className="mono">{event.resource}</span><span><Badge appearance="tint" color={event.outcome === "SUCCESS" ? "success" : "danger"}>{event.outcome}</Badge></span><span className="mono">{event.durationMs} ms</span></div>)}</section></main>;
@@ -257,7 +276,7 @@ function ApiPage() {
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>("data");
+  const [page, setPage] = useState<Page>("ontology");
   const [dark, setDark] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [data,setData]=useState<Bootstrap|null>(null);
@@ -309,8 +328,8 @@ export default function App() {
         )}
         {page === "audit" && <Audit events={data.audits} />}
         {page === "api" && <ApiPage />}
-        {page === "system" && (
-          <SystemPage data={data} refresh={refresh}/>
+        {page === "users" && (
+          <UserManagementPage data={data} refresh={refresh}/>
         )}
       </div>
     </div>
