@@ -50,8 +50,9 @@ import { validateSnapshot } from "./domain/engine";
 import type { Metric, ObjectType, OntologyRelation, OntologySnapshot, ValidationIssue } from "./domain/types";
 import { api, type Audit as AuditRecord, type Bootstrap, type Source, type Table } from "./api";
 
-type Page = "ontology" | "data" | "query" | "audit" | "api" | "users";
+type Page = "dashboard" | "ontology" | "data" | "query" | "audit" | "api" | "users";
 type EntityTab = "objects" | "metrics" | "relations";
+type DashboardTab = "metrics" | "graph";
 
 const objectTypeLabels: Record<ObjectType, string> = {
   ENTITY: "实体",
@@ -59,6 +60,13 @@ const objectTypeLabels: Record<ObjectType, string> = {
   SNAPSHOT: "快照",
   AGGREGATE: "聚合",
   RELATIONSHIP: "关系对象",
+};
+
+const cardinalityLabels: Record<OntologyRelation["cardinality"], string> = {
+  ONE_TO_ONE: "1:1",
+  ONE_TO_MANY: "1:N",
+  MANY_TO_ONE: "N:1",
+  MANY_TO_MANY: "N:N",
 };
 
 const semanticBrand: BrandVariants = {
@@ -72,6 +80,7 @@ const semanticLightTheme = createLightTheme(semanticBrand);
 const semanticDarkTheme = createDarkTheme(semanticBrand);
 
 const primaryNav = [
+  { id: "dashboard" as const, label: "总览", icon: ChartBar },
   { id: "ontology" as const, label: "本体", icon: CirclesThreePlus },
 ];
 
@@ -153,6 +162,136 @@ function Header({ page, dark, setDark }: { page: Page; dark: boolean; setDark: (
 
 function EmptyState({ kind }: { kind: string }) {
   return <div className="empty-state"><CirclesThreePlus size={32} /><h3>暂无{kind}</h3></div>;
+}
+
+function ObjectGlyph() {
+  return <span className="object-glyph" aria-hidden="true"><i /><i /><i /><i /></span>;
+}
+
+function formatRelativeTime(value?: string) {
+  if (!value) return "尚未更新";
+  const elapsed = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 0) return "刚刚更新";
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return "刚刚更新";
+  if (minutes < 60) return `${minutes} 分钟前更新`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前更新`;
+  return `${Math.floor(hours / 24)} 天前更新`;
+}
+
+type GraphPoint = { x: number; y: number };
+
+function graphLayout(snapshot: OntologySnapshot) {
+  const degree = new Map(snapshot.objects.map((object) => [object.id, 0]));
+  snapshot.relations.forEach((relation) => {
+    degree.set(relation.sourceObjectId, (degree.get(relation.sourceObjectId) ?? 0) + 1);
+    degree.set(relation.targetObjectId, (degree.get(relation.targetObjectId) ?? 0) + 1);
+  });
+  const ordered = [...snapshot.objects].sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0));
+  const positions = new Map<string, GraphPoint>();
+  if (!ordered.length) return positions;
+  positions.set(ordered[0].id, { x: 500, y: 282 });
+  const presets = [
+    { x: 235, y: 126 }, { x: 765, y: 126 }, { x: 155, y: 314 },
+    { x: 845, y: 314 }, { x: 300, y: 456 }, { x: 700, y: 456 }, { x: 500, y: 88 },
+  ];
+  ordered.slice(1).forEach((object, index) => {
+    const preset = presets[index];
+    if (preset) positions.set(object.id, preset);
+    else {
+      const angle = ((index - presets.length) / Math.max(1, ordered.length - presets.length - 1)) * Math.PI * 2;
+      positions.set(object.id, { x: 500 + Math.cos(angle) * 360, y: 275 + Math.sin(angle) * 205 });
+    }
+  });
+  return positions;
+}
+
+function edgePoints(source: GraphPoint, target: GraphPoint) {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const sourceScale = Math.min(83 / Math.max(Math.abs(dx), 0.01), 33 / Math.max(Math.abs(dy), 0.01));
+  const targetScale = Math.min(91 / Math.max(Math.abs(dx), 0.01), 39 / Math.max(Math.abs(dy), 0.01));
+  return { x1: source.x + dx * sourceScale, y1: source.y + dy * sourceScale, x2: target.x - dx * targetScale, y2: target.y - dy * targetScale };
+}
+
+function metricFormula(metric: Metric, snapshot: OntologySnapshot) {
+  const owner = snapshot.objects.find((object) => object.id === metric.objectId);
+  if (metric.definitionMode === "SQL") return metric.expression || "SQL 口径";
+  if (metric.metricType === "BASE") {
+    const property = owner?.properties.find((item) => item.id === metric.sourcePropertyId);
+    return `${metric.aggregation}(${property?.sourceColumn ?? "*"})`;
+  }
+  const left = snapshot.metrics.find((item) => item.id === metric.leftMetricId)?.label ?? "左指标";
+  const right = snapshot.metrics.find((item) => item.id === metric.rightMetricId)?.label ?? "右指标";
+  const operator = { ADD: "+", SUBTRACT: "−", MULTIPLY: "×", DIVIDE: "÷", RATIO: "÷" }[metric.calculationOperator ?? "DIVIDE"];
+  return `${left} ${operator} ${right}${metric.scale && metric.scale !== 1 ? ` × ${metric.scale}` : ""}`;
+}
+
+function Dashboard({ data, snapshot, onNavigate }: { data: Bootstrap; snapshot: OntologySnapshot; onNavigate: (page: Page) => void }) {
+  const [tab, setTab] = useState<DashboardTab>("graph");
+  const [query, setQuery] = useState("");
+  const [selectedObjectId, setSelectedObjectId] = useState(snapshot.objects[0]?.id ?? "");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const matchedRelationIds = new Set(snapshot.relations.filter((relation) => relation.name.toLocaleLowerCase().includes(normalizedQuery)).flatMap((relation) => [relation.sourceObjectId, relation.targetObjectId]));
+  const visibleObjects = normalizedQuery ? snapshot.objects.filter((object) => `${object.label} ${object.name}`.toLocaleLowerCase().includes(normalizedQuery) || matchedRelationIds.has(object.id)) : snapshot.objects;
+  const visibleIds = new Set(visibleObjects.map((object) => object.id));
+  const visibleRelations = snapshot.relations.filter((relation) => visibleIds.has(relation.sourceObjectId) && visibleIds.has(relation.targetObjectId) && (!normalizedQuery || relation.name.toLocaleLowerCase().includes(normalizedQuery) || matchedRelationIds.has(relation.sourceObjectId)));
+  const positions = graphLayout({ ...snapshot, objects: visibleObjects, relations: visibleRelations });
+  const selectedObject = visibleObjects.find((object) => object.id === selectedObjectId) ?? visibleObjects[0] ?? (!normalizedQuery ? snapshot.objects[0] : undefined);
+  const analyticalProperties = selectedObject?.properties.filter((property) => property.visibility === "ANALYTICAL") ?? [];
+  const today = new Date().toDateString();
+  const todayQueries = data.audits.filter((event) => event.action === "QUERY_EXECUTED" && new Date(event.at).toDateString() === today);
+  const failedQueries = todayQueries.filter((event) => event.outcome !== "SUCCESS").length;
+  const published = data.published;
+  const lastUpdatedAt = published?.publishedAt ?? data.source?.lastTestedAt ?? data.audits[0]?.at;
+
+  return <main className="page dashboard-page">
+    <section className="dashboard-header">
+      <div><h1>平台总览</h1>{published ? <Badge appearance="tint" color="success">已发布 v{published.version}</Badge> : <Badge appearance="tint" color="warning">本体草稿 v{snapshot.version}</Badge>}<span>{formatRelativeTime(lastUpdatedAt)}</span></div>
+      <Button appearance="primary" onClick={() => onNavigate("ontology")}>进入本体</Button>
+    </section>
+    <section className="dashboard-kpis" aria-label="平台关键数据">
+      <div><span className="dashboard-kpi-icon"><ChartBar size={24} /></span><div><span>{published ? "已发布指标" : "草稿指标"}</span><strong>{snapshot.metrics.length}</strong></div></div>
+      <div><span className="dashboard-kpi-icon"><CirclesThreePlus size={25} /></span><div><span>业务对象</span><strong>{snapshot.objects.length}</strong></div></div>
+      <div><span className="dashboard-kpi-icon"><GitBranch size={25} /></span><div><span>对象关系</span><strong>{snapshot.relations.length}</strong></div></div>
+      <div><span className="dashboard-kpi-icon"><Database size={24} /></span><div><span>已接入表</span><strong>{data.tables.length}</strong></div></div>
+    </section>
+    <section className="panel analysis-flow-panel">
+      <div className="dashboard-section-title"><h2>数据到分析</h2></div>
+      <div className="analysis-flow">
+        <div className="analysis-step"><span><PlugsConnected size={23} /></span><div><strong>MaxCompute</strong><small className={data.source?.status === "CONNECTED" ? "healthy" : "pending"}>{data.source?.status === "CONNECTED" ? "● 已连接" : "待连接"}</small></div></div><ArrowRight className="flow-arrow" size={24} />
+        <div className="analysis-step"><span><Database size={23} /></span><div><strong>物理表</strong><small>{data.tables.length} 张</small></div></div><ArrowRight className="flow-arrow" size={24} />
+        <div className="analysis-step"><span><CirclesThreePlus size={23} /></span><div><strong>业务本体</strong><small>{snapshot.objects.length} 对象 · {snapshot.relations.length} 关系</small></div></div><ArrowRight className="flow-arrow" size={24} />
+        <div className="analysis-step"><span><RocketLaunch size={23} /></span><div><strong>发布版本</strong><small className={published ? "healthy" : "pending"}>{published ? `v${published.version} 生效` : "尚未发布"}</small></div></div><ArrowRight className="flow-arrow" size={24} />
+        <div className="analysis-step"><span><ArrowRight size={23} /></span><div><strong>查询运行</strong><small>今日 {todayQueries.length} 次{failedQueries ? <em> · {failedQueries} 次失败</em> : ""}</small></div></div>
+      </div>
+    </section>
+    <section className="panel analyzable-panel">
+      <header className="analyzable-header">
+        <div><h2>可分析内容</h2><div className="dashboard-tabs" role="tablist" aria-label="可分析内容类型"><button role="tab" aria-selected={tab === "metrics"} className={tab === "metrics" ? "active" : ""} onClick={() => setTab("metrics")}>指标清单 <span>{snapshot.metrics.length}</span></button><button role="tab" aria-selected={tab === "graph"} className={tab === "graph" ? "active" : ""} onClick={() => setTab("graph")}>本体图谱</button></div></div>
+        {tab === "graph" && <div className="dashboard-search"><MagnifyingGlass size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索对象或关系" aria-label="搜索对象或关系" /></div>}
+      </header>
+      {tab === "metrics" ? <div className="dashboard-metric-list">
+        <div className="dashboard-metric-row dashboard-metric-head"><span>指标</span><span>类型</span><span>所属对象</span><span>计算口径</span><span>状态</span></div>
+        {snapshot.metrics.length ? snapshot.metrics.map((metric) => <button className="dashboard-metric-row" key={metric.id} onClick={() => onNavigate("ontology")}><span><strong>{metric.label}</strong><small>{metric.name}</small></span><span>{metric.metricType === "BASE" ? "基础指标" : "派生指标"}</span><span>{snapshot.objects.find((object) => object.id === metric.objectId)?.label ?? "—"}</span><code>{metricFormula(metric, snapshot)}</code><StatusBadge status={metric.status} /></button>) : <EmptyState kind="指标" />}
+      </div> : <div className="ontology-overview">
+        <div className="graph-canvas">
+          <div className="graph-toolbar"><span>全部对象</span><span>适应画布</span><span>100%</span></div>
+          {!visibleObjects.length ? <EmptyState kind="匹配的对象" /> : <div className="graph-stage">
+            <svg viewBox="0 0 1000 540" role="img" aria-label="本体对象关系图">
+              <defs><marker id="graph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>
+              {visibleRelations.map((relation) => { const relationSource = positions.get(relation.sourceObjectId); const relationTarget = positions.get(relation.targetObjectId); if (!relationSource || !relationTarget) return null; const source = relation.direction === "TARGET_TO_SOURCE" ? relationTarget : relationSource; const target = relation.direction === "TARGET_TO_SOURCE" ? relationSource : relationTarget; const edge = edgePoints(source, target); const mx = (edge.x1 + edge.x2) / 2; const my = (edge.y1 + edge.y2) / 2; return <g key={relation.id} className="graph-edge"><line {...edge} markerEnd="url(#graph-arrow)" markerStart={relation.direction === "BIDIRECTIONAL" ? "url(#graph-arrow)" : undefined} /><text x={mx} y={my - 8} textAnchor="middle">{relation.name}</text><text className="graph-cardinality" x={mx} y={my + 10} textAnchor="middle">{cardinalityLabels[relation.cardinality]}</text></g>; })}
+            </svg>
+            {visibleObjects.map((object) => { const position = positions.get(object.id); if (!position) return null; return <button key={object.id} aria-label={`查看${object.label}`} className={`graph-node ${selectedObject?.id === object.id ? "active" : ""}`} style={{ left: `${position.x / 10}%`, top: `${position.y / 5.4}%` }} onClick={() => setSelectedObjectId(object.id)}><ObjectGlyph /><span><strong>{object.label}</strong><small>{object.objectType}</small></span><i className={`node-status ${object.status === "PUBLISHED" ? "" : "draft"}`} /></button>; })}
+          </div>}
+        </div>
+        <aside className="graph-inspector">
+          {selectedObject ? <><div className="graph-inspector-title"><ObjectGlyph /><div><h3>{selectedObject.label}</h3><span>{selectedObject.objectType} · {selectedObject.status === "PUBLISHED" ? "已发布" : "草稿"}</span></div></div><div className="queryable-title"><strong>可查询属性</strong><span>{analyticalProperties.length}</span></div><div className="queryable-list">{analyticalProperties.map((property) => <div key={property.id}><span><strong>{property.label}</strong><small>{property.sourceColumn}</small></span><code>{property.meaning === "ENTITY_REFERENCE" ? "REFERENCE" : property.meaning}</code></div>)}</div><dl className="graph-object-meta"><div><dt>默认时间</dt><dd>{selectedObject.properties.find((property) => property.id === selectedObject.defaultTimePropertyId)?.label ?? "未配置"}</dd></div><div><dt>业务粒度</dt><dd>{selectedObject.grain}</dd></div></dl><button className="object-detail-link" onClick={() => onNavigate("ontology")}>查看对象详情 <ArrowRight size={16} /></button></> : <EmptyState kind="对象" />}
+        </aside>
+      </div>}
+    </section>
+  </main>;
 }
 
 function NewFromTableDialog({ tables, onCreated }: { tables: Table[]; onCreated: () => Promise<void> }) {
@@ -276,7 +415,7 @@ function ApiPage() {
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>("ontology");
+  const [page, setPage] = useState<Page>("dashboard");
   const [dark, setDark] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [data,setData]=useState<Bootstrap|null>(null);
@@ -317,6 +456,7 @@ export default function App() {
       <div className="app-body">
         <Header page={page} dark={dark} setDark={setDark} />
         {globalError&&<div className="global-error" role="alert">{globalError}<button onClick={()=>setGlobalError("")}>关闭</button></div>}
+        {page === "dashboard" && <Dashboard data={data} snapshot={data.published ?? snapshot} onNavigate={setPage} />}
         {page === "data" && (
           <DataPage source={data.source} tables={data.tables} refresh={refresh}/>
         )}

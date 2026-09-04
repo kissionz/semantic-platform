@@ -30,14 +30,26 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 describe("independent platform shell", () => {
   it("loads the complete desktop navigation", async () => {
     render(<App/>);
-    expect(await screen.findByRole("heading",{name:"业务本体"})).toBeInTheDocument();
+    expect(await screen.findByRole("heading",{name:"平台总览"})).toBeInTheDocument();
     const navigation=screen.getByRole("navigation",{name:"主要导航"});
+    expect(within(navigation).getByRole("button",{name:"总览"})).toBeInTheDocument();
     expect(within(navigation).getByRole("button",{name:"本体"})).toBeInTheDocument();
     expect(within(navigation).getByRole("button",{name:"系统管理"})).toHaveAttribute("aria-expanded","true");
-    expect(within(navigation).getAllByRole("button")).toHaveLength(7);
+    expect(within(navigation).getAllByRole("button")).toHaveLength(8);
     expect(screen.queryByText("命名空间")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button",{name:"收起侧边栏"}));
     expect(screen.getAllByRole("navigation")).toHaveLength(1);
+  });
+
+  it("shows live ontology content in the dashboard graph", async () => {
+    render(<App/>);
+    expect(await screen.findByRole("img",{name:"本体对象关系图"})).toBeInTheDocument();
+    expect(screen.getByText("草稿指标").nextElementSibling).toHaveTextContent("4");
+    fireEvent.click(screen.getByRole("button",{name:"查看客户"}));
+    expect(screen.getByText("客户 ID")).toBeInTheDocument();
+    expect(screen.getByText("客户名称")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab",{name:/指标清单/}));
+    expect(screen.getByRole("button",{name:/^销售额 /})).toBeInTheDocument();
   });
 
   it("keeps transient UI separate from the page layout", async () => {
