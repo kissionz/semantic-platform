@@ -12,7 +12,7 @@ python3 -m pip install -r requirements.txt
 npm start
 ```
 
-打开 <http://localhost:5173>。首次启动会在 API 日志中输出一次性 `admin` 初始密码，运行数据保存在 `.semantic-platform/`。
+打开 <http://localhost:5173>，开发 API 监听 <http://localhost:4320>。首次启动会在 API 日志中输出一次性 `admin` 初始密码，运行数据保存在 `.semantic-platform/`。
 
 ## MaxCompute 接入
 

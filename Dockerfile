@@ -15,8 +15,8 @@ COPY --from=build /app/dist-server ./dist-server
 COPY src/server/maxcompute_runner.py ./src/server/maxcompute_runner.py
 RUN mkdir -p /data && chown -R node:node /data /app
 USER node
-ENV NODE_ENV=production PYTHON_BIN=/opt/semantic-venv/bin/python SEMANTIC_STATE_ROOT=/data HOST=0.0.0.0 PORT=4310
-EXPOSE 4310
+ENV NODE_ENV=production PYTHON_BIN=/opt/semantic-venv/bin/python SEMANTIC_STATE_ROOT=/data HOST=0.0.0.0 PORT=4320
+EXPOSE 4320
 VOLUME ["/data"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["node", "-e", "fetch('http://127.0.0.1:4310/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["node", "-e", "fetch('http://127.0.0.1:4320/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
 CMD ["npm", "run", "start:prod"]

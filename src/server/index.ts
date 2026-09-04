@@ -121,4 +121,4 @@ function qualifiedTable(table:PhysicalTable){return [table.project,(table as Phy
 const webRoot=path.resolve("dist");
 if(process.env.NODE_ENV==="production"&&fs.existsSync(path.join(webRoot,"index.html"))){await app.register(fastifyStatic,{root:webRoot});app.setNotFoundHandler((request,reply)=>request.url.startsWith("/api/")?reply.code(404).send({message:"API 不存在"}):reply.sendFile("index.html"));}
 const shutdown=async()=>{store.close();await app.close();};process.once("SIGINT",()=>void shutdown());process.once("SIGTERM",()=>void shutdown());
-await app.listen({host:process.env.HOST||"127.0.0.1",port:Number(process.env.PORT||4310)});
+await app.listen({host:process.env.HOST||"127.0.0.1",port:Number(process.env.PORT||4320)});
