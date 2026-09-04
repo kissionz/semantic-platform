@@ -1,50 +1,50 @@
-# 语义平台控制台
+# 语义平台
 
-依据《语义平台统一产品与开发规格》实现的可运行前端与领域核心。当前版本聚焦最高优先级的安全分析闭环。
-
-## 已实现阶段
-
-### 核心契约与规则
-
-- 5 类对象、10 种属性语义、指标与 7 类关系的 TypeScript 契约
-- 对象粒度、ID、数值可加性、指标依赖、关系键与扇出校验
-- 稳定的语义候选排序与会话短引用展示
-- 完整业务值绑定，以及歧义时停止执行的接口边界
-
-### Query IR 与 SQL
-
-- Query IR v3 核心字段
-- 基础指标与同对象派生指标递归编译
-- 除法与比率使用 `NULLIF`
-- 关联对象值筛选使用相关 `EXISTS`
-- 时间范围参数化、对象默认过滤、Join 必选性与结果上限
-
-### 产品工作台
-
-- 本体目录、对象检查器、草稿发布、语义测试、审计与 API
-- 草稿校验和不可变版本发布交互
-- 问题到 SQL 的可执行演示流程
-- 深浅色主题、桌面侧边栏、加载、空状态与错误状态
-
-## 后续阶段
-
-- 完整 Control Plane 与 Runtime HTTP 服务
-- 物理目录、持久化草稿、乐观锁发布事务和值索引
-- 全量高级计算、递归层级与 G01-G20 黄金用例
-- TypeScript/Python SDK、MCP Server、鉴权、限流与可观测性
+独立部署的 MaxCompute 语义建模与受控查询平台。当前 MVP 提供登录与角色、数据源配置、精确表检索、本体草稿与发布、查询执行和审计记录。
 
 ## 本地运行
 
+需要 Node.js 24+ 与 Python 3.10+。
+
 ```bash
 npm install
+python3 -m pip install -r requirements.txt
 npm start
 ```
 
-访问 http://localhost:5173/ 。`npm run dev` 仍可用于开发启动。
+打开 <http://localhost:5173>。首次启动会在 API 日志中输出一次性 `admin` 初始密码，运行数据保存在 `.semantic-platform/`。
+
+## MaxCompute 接入
+
+1. 在「数据目录」填写 Endpoint、Project 和最小权限服务账号凭据。
+2. 测试连接并保存，AccessKey Secret 使用 AES-256-GCM 加密后持久化。
+3. 输入准确表名进行检索，确认字段后添加到物理目录。
+4. 在「本体」中选择已添加的表，配置对象类型、ID 字段和时间字段。
+5. 补充指标与关系，校验后发布，再到「查询工作台」执行查询。
+
+平台只向 MaxCompute 提交由已发布本体编译的 `SELECT` 查询，业务参数通过 PyODPS 参数接口传递。推荐为平台创建专用只读服务账号，并限制 Project、表和列权限。
+
+## 生产部署
+
+复制 `.env.example` 为 `.env`，生成独立密钥：
+
+```bash
+openssl rand -base64 32
+```
+
+分别设置 `SEMANTIC_ADMIN_PASSWORD` 与 `SEMANTIC_CREDENTIAL_KEY`，然后启动：
+
+```bash
+docker compose up -d --build
+```
+
+服务地址为 <http://localhost:8080>，SQLite、审计日志和加密凭据保存在 Docker 数据卷中。请在反向代理层启用 HTTPS。
 
 ## 验证
 
 ```bash
 npm run build
-npm test
+npm test -- --run
 ```
+
+真实 MaxCompute 连接测试需要可访问目标 Project 的凭据和网络环境。

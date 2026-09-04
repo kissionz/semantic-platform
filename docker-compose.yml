@@ -1,0 +1,14 @@
+services:
+  semantic-platform:
+    build: .
+    ports:
+      - "8080:4310"
+    environment:
+      SEMANTIC_ADMIN_PASSWORD: ${SEMANTIC_ADMIN_PASSWORD:?set SEMANTIC_ADMIN_PASSWORD}
+      SEMANTIC_CREDENTIAL_KEY: ${SEMANTIC_CREDENTIAL_KEY:?set SEMANTIC_CREDENTIAL_KEY}
+    volumes:
+      - semantic-platform-data:/data
+    restart: unless-stopped
+
+volumes:
+  semantic-platform-data:

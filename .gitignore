@@ -1,5 +1,10 @@
 node_modules/
 dist/
+dist-server/
+.semantic-platform/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 .playwright-cli/
 .learnings/
 .impeccable/live/sessions/

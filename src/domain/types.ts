@@ -79,6 +79,7 @@ export interface OntologyRelation {
   cardinality: Cardinality;
   sourcePropertyId: string;
   targetPropertyId: string;
+  joinExpression: string;
   direction: "BIDIRECTIONAL" | "SOURCE_TO_TARGET" | "TARGET_TO_SOURCE";
   required: boolean;
   enabled: boolean;

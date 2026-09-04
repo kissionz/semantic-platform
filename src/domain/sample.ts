@@ -1,4 +1,4 @@
-import type { OntologySnapshot } from "./types";
+import type { OntologySnapshot } from "./types.js";
 
 const analytical = {
   description: "",
@@ -83,8 +83,8 @@ export const sampleSnapshot: OntologySnapshot = {
     { id: "metric_margin", metricType: "DERIVED", name: "gross_margin", label: "毛利率", description: "毛利额占销售额的比例", objectId: "obj_sales", definitionMode: "VISUAL", expression: "", aggregation: "CUSTOM", leftMetricId: "metric_profit", rightMetricId: "metric_sales", calculationOperator: "RATIO", scale: 100, format: "percent", synonyms: ["利润率"], status: "DRAFT" },
   ],
   relations: [
-    { id: "rel_sales_customer", name: "销售归属客户", sourceObjectId: "obj_sales", targetObjectId: "obj_customer", type: "REFERENCE", cardinality: "MANY_TO_ONE", sourcePropertyId: "prop_customer_id", targetPropertyId: "prop_customer_pk", direction: "SOURCE_TO_TARGET", required: true, enabled: true, fanoutRisk: "NONE", status: "DRAFT" },
-    { id: "rel_sales_region", name: "销售归属区域", sourceObjectId: "obj_sales", targetObjectId: "obj_region", type: "REFERENCE", cardinality: "MANY_TO_ONE", sourcePropertyId: "prop_region_id", targetPropertyId: "prop_region_pk", direction: "SOURCE_TO_TARGET", required: false, enabled: true, fanoutRisk: "NONE", status: "DRAFT" },
+    { id: "rel_sales_customer", name: "销售归属客户", sourceObjectId: "obj_sales", targetObjectId: "obj_customer", type: "REFERENCE", cardinality: "MANY_TO_ONE", sourcePropertyId: "prop_customer_id", targetPropertyId: "prop_customer_pk", joinExpression: "销售事件.customer_id = 客户.customer_id", direction: "SOURCE_TO_TARGET", required: true, enabled: true, fanoutRisk: "NONE", status: "DRAFT" },
+    { id: "rel_sales_region", name: "销售归属区域", sourceObjectId: "obj_sales", targetObjectId: "obj_region", type: "REFERENCE", cardinality: "MANY_TO_ONE", sourcePropertyId: "prop_region_id", targetPropertyId: "prop_region_pk", joinExpression: "销售事件.region_id = 区域.region_id", direction: "SOURCE_TO_TARGET", required: false, enabled: true, fanoutRisk: "NONE", status: "DRAFT" },
   ],
   dimensionHierarchies: [],
 };

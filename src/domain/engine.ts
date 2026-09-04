@@ -1,4 +1,4 @@
-import type { AuditEvent, Metric, OntologyObject, OntologyProperty, OntologySnapshot, SearchHit, ValidationIssue } from "./types";
+import type { AuditEvent, Metric, OntologyObject, OntologyProperty, OntologySnapshot, SearchHit, ValidationIssue } from "./types.js";
 
 const valueMeanings = new Set(["CODE", "NAME", "CATEGORY", "BOOLEAN", "GEOGRAPHY"]);
 
@@ -55,6 +55,8 @@ export function validateSnapshot(snapshot: OntologySnapshot): ValidationIssue[] 
     const sourceProperty = propertyMap.get(relation.sourcePropertyId)?.property;
     const targetProperty = propertyMap.get(relation.targetPropertyId)?.property;
     if (!sourceProperty || !targetProperty) error("RELATION_PROPERTY_NOT_FOUND", relation.id, "关系键属性不存在");
+    if (!source.properties.some((property) => property.id === relation.sourcePropertyId) || !target.properties.some((property) => property.id === relation.targetPropertyId)) error("RELATION_ENDPOINT_MISMATCH", relation.id, "关系键必须属于对应端对象");
+    if (!relation.joinExpression.trim() || hasUnsafeSql(relation.joinExpression)) error("RELATION_EXPRESSION_UNSAFE", relation.id, "关系表达式为空或包含不安全内容");
     if (targetProperty?.meaning !== "ID") error("RELATION_TARGET_NOT_ID", relation.id, "关系目标属性必须是目标对象 ID");
     if (sourceProperty && targetProperty && sourceProperty.dataType !== targetProperty.dataType) error("RELATION_KEY_TYPE_MISMATCH", relation.id, "关系两端属性数据类型不一致");
     if (relation.cardinality === "MANY_TO_MANY") warn("RELATION_FANOUT_UNSAFE", relation.id, "多对多关系将在聚合计划中被拒绝");
@@ -164,16 +166,19 @@ export function compilePlan(snapshot: OntologySnapshot, request: CompileRequest)
   const select: string[] = [];
   const groupBy: string[] = [];
   const joins: string[] = [];
-  const where = [`(t0.${root.defaultFilter ?? "1 = 1"})`];
+  const column = (alias: string, name: string) => `${alias}.\`${name.replace(/`/g, "``")}\``;
+  const table = (name: string) => name.split(".").map((part) => `\`${part.replace(/`/g, "``")}\``).join(".");
+  const where = root.defaultFilter ? [`(t0.${root.defaultFilter})`] : ["1 = 1"];
   const params: string[] = [];
   let alias = 1;
 
   if (request.timeGrain && time) {
-    const expression = `DATE_TRUNC(t0.${time.sourceColumn}, '${request.timeGrain.toLowerCase()}')`;
+    const expression = `DATETRUNC(${column("t0", time.sourceColumn)}, '${request.timeGrain.toLowerCase()}')`;
     select.push(`${expression} AS \`时间\``);
     groupBy.push(expression);
-    where.push(`t0.${time.sourceColumn} >= ?`, `t0.${time.sourceColumn} < ?`);
-    params.push("2026-01-01", "2027-01-01");
+    where.push(`${column("t0", time.sourceColumn)} >= ?`, `${column("t0", time.sourceColumn)} < ?`);
+    const year = new Date().getUTCFullYear();
+    params.push(`${year}-01-01`, `${year + 1}-01-01`);
   }
 
   if (request.dimensionId) {
@@ -181,17 +186,17 @@ export function compilePlan(snapshot: OntologySnapshot, request: CompileRequest)
     const property = owner?.properties.find((item) => item.id === request.dimensionId);
     if (owner && property) {
       if (owner.id === root.id) {
-        select.push(`t0.${property.sourceColumn} AS \`${property.label}\``);
-        groupBy.push(`t0.${property.sourceColumn}`);
+        select.push(`${column("t0", property.sourceColumn)} AS \`${property.label}\``);
+        groupBy.push(column("t0", property.sourceColumn));
       } else {
         const relation = snapshot.relations.find((item) => item.enabled && item.sourceObjectId === root.id && item.targetObjectId === owner.id);
         if (!relation || relation.fanoutRisk === "HIGH" || relation.cardinality === "MANY_TO_MANY") throw new Error("RELATION_FANOUT_UNSAFE");
         const sourceKey = root.properties.find((item) => item.id === relation.sourcePropertyId)!;
         const targetKey = owner.properties.find((item) => item.id === relation.targetPropertyId)!;
         const currentAlias = `t${alias++}`;
-        joins.push(`${relation.required ? "INNER" : "LEFT"} JOIN ${owner.sourceTableId} AS ${currentAlias} ON t0.${sourceKey.sourceColumn} = ${currentAlias}.${targetKey.sourceColumn}`);
-        select.push(`${currentAlias}.${property.sourceColumn} AS \`${property.label}\``);
-        groupBy.push(`${currentAlias}.${property.sourceColumn}`);
+        joins.push(`${relation.required ? "INNER" : "LEFT"} JOIN ${table(owner.sourceTableId)} AS ${currentAlias} ON ${column("t0", sourceKey.sourceColumn)} = ${column(currentAlias, targetKey.sourceColumn)}`);
+        select.push(`${column(currentAlias, property.sourceColumn)} AS \`${property.label}\``);
+        groupBy.push(column(currentAlias, property.sourceColumn));
         if (owner.defaultFilter) where.push(`(${currentAlias}.${owner.defaultFilter})`);
       }
     }
@@ -202,13 +207,13 @@ export function compilePlan(snapshot: OntologySnapshot, request: CompileRequest)
     const owner = snapshot.objects.find((item) => item.id === binding.objectId)!;
     const property = owner.properties.find((item) => item.id === binding.propertyId)!;
     if (owner.id === root.id) {
-      where.push(`t0.${property.sourceColumn} = ?`);
+      where.push(`${column("t0", property.sourceColumn)} = ?`);
     } else {
       const relation = snapshot.relations.find((item) => item.enabled && item.sourceObjectId === root.id && item.targetObjectId === owner.id);
       if (!relation) throw new Error("RELATION_PATH_NOT_FOUND");
       const sourceKey = root.properties.find((item) => item.id === relation.sourcePropertyId)!;
       const targetKey = owner.properties.find((item) => item.id === relation.targetPropertyId)!;
-      where.push(`EXISTS (SELECT 1 FROM ${owner.sourceTableId} AS vf0 WHERE t0.${sourceKey.sourceColumn} = vf0.${targetKey.sourceColumn}${owner.defaultFilter ? ` AND vf0.${owner.defaultFilter}` : ""} AND vf0.${property.sourceColumn} = ?)`);
+      where.push(`EXISTS (SELECT 1 FROM ${table(owner.sourceTableId)} AS vf0 WHERE ${column("t0", sourceKey.sourceColumn)} = ${column("vf0", targetKey.sourceColumn)}${owner.defaultFilter ? ` AND (${owner.defaultFilter})` : ""} AND ${column("vf0", property.sourceColumn)} = ?)`);
     }
     params.push(binding.value);
   }
@@ -217,7 +222,7 @@ export function compilePlan(snapshot: OntologySnapshot, request: CompileRequest)
     if (stack.has(current.id)) throw new Error("DERIVED_METRIC_CYCLE");
     if (current.metricType === "BASE") {
       const currentSource = root.properties.find((item) => item.id === current.sourcePropertyId);
-      return current.aggregation === "COUNT" ? "COUNT(*)" : `${current.aggregation}(t0.${currentSource?.sourceColumn})`;
+      return current.aggregation === "COUNT" ? "COUNT(*)" : `${current.aggregation}(${column("t0", currentSource?.sourceColumn ?? "")})`;
     }
     const nextStack = new Set(stack).add(current.id);
     const left = snapshot.metrics.find((item) => item.id === current.leftMetricId);
@@ -238,7 +243,7 @@ export function compilePlan(snapshot: OntologySnapshot, request: CompileRequest)
   select.push(`${measureSql} AS \`${metric.label}\``);
   const sql = [
     `SELECT ${select.join(",\n       ")}`,
-    `FROM ${root.sourceTableId} AS t0`,
+    `FROM ${table(root.sourceTableId)} AS t0`,
     ...joins,
     `WHERE ${where.join("\n  AND ")}`,
     ...(groupBy.length ? [`GROUP BY ${groupBy.join(", ")}`] : []),
@@ -261,7 +266,7 @@ export function compilePlan(snapshot: OntologySnapshot, request: CompileRequest)
       grain: request.timeGrain ? `${request.timeGrain} 时间粒度` : root.grain,
       resultKind: "aggregate",
       limit: 200,
-      resultContract: { calculationSource: "DORIS_SQL", businessLogicBeforeLimit: true, completeness: "COMPLETE_IF_NOT_TRUNCATED", exhaustiveRequested: false },
+      resultContract: { calculationSource: "MAXCOMPUTE_SQL", businessLogicBeforeLimit: true, completeness: "COMPLETE_IF_NOT_TRUNCATED", exhaustiveRequested: false },
     },
   };
 }

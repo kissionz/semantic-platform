@@ -32,9 +32,10 @@ describe("runtime and compiler", () => {
 
   it("uses EXISTS for a related value filter", () => {
     const plan = compilePlan(sampleSnapshot, { query: "今年华东销售额按月趋势", metricId: "metric_sales", timeGrain: "MONTH", boundValue: bindValue(sampleSnapshot, "华东")[0] });
-    expect(plan.sql).toContain("EXISTS (SELECT 1 FROM dim_region");
+    expect(plan.sql).toContain("EXISTS (SELECT 1 FROM `dim_region`");
     expect(plan.sql).not.toContain("DELETE");
-    expect(plan.params).toEqual(["2026-01-01", "2027-01-01", "华东"]);
+    const year = new Date().getUTCFullYear();
+    expect(plan.params).toEqual([`${year}-01-01`, `${year + 1}-01-01`, "华东"]);
   });
 
   it("guards a derived ratio denominator with NULLIF", () => {
