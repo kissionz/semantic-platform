@@ -23,6 +23,8 @@ export const propertyMeaningLabels: Record<PropertyMeaning, string> = {
   TEXT: "文本",
 };
 
+export const valueSearchableMeanings = new Set<PropertyMeaning>(["CODE", "NAME", "CATEGORY", "BOOLEAN"]);
+
 export function inferCardinality(sourceProperty: OntologyProperty, targetProperty: OntologyProperty): OntologyRelation["cardinality"] {
   if (sourceProperty.unique && targetProperty.unique) return "ONE_TO_ONE";
   if (sourceProperty.unique && !targetProperty.unique) return "ONE_TO_MANY";

@@ -96,7 +96,7 @@ app.post<{Body:unknown}>("/api/ontology/from-table",async(request,reply)=>{
     const inferredTime=input.timeColumn||table.columns.find(column=>column.partition||/date|time/i.test(column.dataType)||/(^|_)(date|time|dt|at)$/.test(column.name))?.name;
     const properties:OntologyProperty[]=table.columns.map(column=>{
       const meaning=inferPropertyMeaning(column.name,column.dataType,inferredId,inferredTime);
-      return {id:randomUUID(),name:column.name,label:column.comment||column.name,description:column.comment||"",dataType:column.dataType,sourceColumn:column.name,sensitive:/phone|mobile|email|address|id_card|password|secret|token/i.test(column.name),meaning,unique:meaning==="ID",valueSearchable:["CODE","NAME","CATEGORY","GEOGRAPHY"].includes(meaning),visibility:"ANALYTICAL",synonyms:[],defaultDisplay:meaning==="NAME",exportable:true,bindingPriority:50,...(meaning==="NUMBER"?{numericSpec:{kind:"GENERAL" as const,defaultAggregation:"SUM" as const,aggregationBehavior:"ADDITIVE" as const}}:{})};
+      return {id:randomUUID(),name:column.name,label:column.comment||column.name,description:column.comment||"",dataType:column.dataType,sourceColumn:column.name,sensitive:/phone|mobile|email|address|id_card|password|secret|token/i.test(column.name),meaning,unique:meaning==="ID",valueSearchable:["CODE","NAME","CATEGORY","BOOLEAN"].includes(meaning),visibility:"ANALYTICAL",synonyms:[],defaultDisplay:meaning==="NAME",exportable:true,bindingPriority:50,...(meaning==="NUMBER"?{numericSpec:{kind:"GENERAL" as const,unit:"",defaultAggregation:"SUM" as const,aggregationBehavior:"ADDITIVE" as const}}:{})};
     });
     const id=properties.find(property=>property.meaning==="ID");
     const time=properties.find(property=>property.meaning==="TIME");

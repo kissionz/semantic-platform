@@ -1,7 +1,6 @@
 import type { AuditEvent, Metric, OntologyObject, OntologyProperty, OntologySnapshot, SearchHit, ValidationIssue } from "./types.js";
-import { inferCardinality } from "./modeling.js";
+import { inferCardinality, valueSearchableMeanings } from "./modeling.js";
 
-const valueMeanings = new Set(["CODE", "NAME", "CATEGORY", "BOOLEAN", "GEOGRAPHY"]);
 
 function hasUnsafeSql(sql = "") {
   return /;|--|\/\*|\b(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|CALL|EXECUTE|LOAD|OUTFILE|DUMPFILE|LOCK|UNLOCK|SET|USE)\b/i.test(sql);
@@ -39,9 +38,11 @@ export function validateSnapshot(snapshot: OntologySnapshot): ValidationIssue[] 
       if (property.meaning === "ID" && (!property.unique || property.visibility !== "ANALYTICAL")) error("ID_PROPERTY_INVALID", property.id, "ID 必须唯一且可分析");
       if (property.meaning === "ENTITY_REFERENCE" && property.visibility !== "ANALYTICAL") error("REFERENCE_VISIBILITY_INVALID", property.id, "实体引用必须为 ANALYTICAL");
       if (property.meaning === "NUMBER" && !property.numericSpec) error("NUMERIC_SPEC_REQUIRED", property.id, "NUMBER 属性必须声明聚合规则");
+      if (property.numericSpec?.kind === "GENERAL" && !property.numericSpec.unit?.trim()) error("NUMBER_UNIT_REQUIRED", property.id, "数量属性必须填写业务单位");
+      if (property.numericSpec?.kind === "CURRENCY" && (!property.numericSpec.unit?.trim() || !property.numericSpec.currency?.trim())) error("CURRENCY_SPEC_REQUIRED", property.id, "货币属性必须填写业务单位与币种");
       if (property.numericSpec?.kind === "RATIO" && property.numericSpec.defaultAggregation === "SUM") error("NON_ADDITIVE_SUM", property.id, "比例属性不能默认求和");
       if (property.numericSpec?.aggregationBehavior === "NON_ADDITIVE" && property.numericSpec.defaultAggregation === "SUM") error("NON_ADDITIVE_SUM", property.id, "不可加属性不能默认求和");
-      if (property.valueSearchable && (property.sensitive || property.visibility !== "ANALYTICAL" || !valueMeanings.has(property.meaning))) error("VALUE_SEARCH_INVALID", property.id, "值检索仅允许非敏感、可分析且语义在白名单内的属性");
+      if (property.valueSearchable && (property.sensitive || property.visibility !== "ANALYTICAL" || !valueSearchableMeanings.has(property.meaning))) error("VALUE_SEARCH_INVALID", property.id, "值检索仅支持非敏感、可分析的业务编码、展示名称、分类或布尔属性");
     });
     object.grainPropertyIds.forEach((id) => {
       const property = object.properties.find((item) => item.id === id);
@@ -145,7 +146,7 @@ export function semanticSearch(snapshot: OntologySnapshot, query: string): Searc
 
 export function bindValue(snapshot: OntologySnapshot, value: string) {
   const bindings: Array<{ ref: string; value: string; propertyId: string; propertyLabel: string; objectId: string; objectLabel: string }> = [];
-  const known: Record<string, string[]> = { prop_region_name: ["华东", "华北", "华南", "西南"], prop_channel: ["线上渠道", "线下门店", "经销商"] };
+  const known: Record<string, string[]> = { prop_region_tier: ["核心区域", "重点区域", "成长区域"], prop_channel: ["线上渠道", "线下门店", "经销商"] };
   snapshot.objects.forEach((object) => object.properties.filter((property) => property.valueSearchable && !property.sensitive).forEach((property) => {
     if (known[property.id]?.some((item) => item === value || item.startsWith(value))) bindings.push({ ref: `B${bindings.length + 1}`, value, propertyId: property.id, propertyLabel: property.label, objectId: object.id, objectLabel: object.label });
   }));

@@ -96,7 +96,7 @@ describe("independent platform shell", () => {
     fireEvent.change(within(dialog).getByLabelText(/关系名称/),{target:{value:"销售归属客户复核"}});
     fireEvent.click(within(dialog).getByRole("button",{name:"创建关系"}));
     fireEvent.click(screen.getByRole("tab",{name:"关系"}));
-    expect(screen.getByRole("button",{name:"销售归属客户复核 MANY_TO_ONE"})).toBeInTheDocument();
+    expect(screen.getByRole("button",{name:"销售归属客户复核 引用关系"})).toBeInTheDocument();
     expect(screen.getByRole("button",{name:"保存草稿"})).toBeInTheDocument();
   });
 
@@ -108,9 +108,21 @@ describe("independent platform shell", () => {
     fireEvent.click(screen.getByRole("button",{name:"编辑客户名称"}));
     const dialog=screen.getByRole("dialog");
     expect(dialog).toHaveTextContent("customer_name");
+    expect(within(dialog).getByRole("checkbox",{name:"支持值检索"})).toBeEnabled();
     fireEvent.change(within(dialog).getByLabelText(/业务名称/),{target:{value:"客户全称"}});
     fireEvent.click(within(dialog).getByRole("button",{name:"保存属性"}));
     expect(screen.getByText("客户全称")).toBeInTheDocument();
+  });
+
+  it("requires units and currency metadata for monetary properties", async () => {
+    render(<App/>);
+    const navigation=await screen.findByRole("navigation",{name:"主要导航"});
+    fireEvent.click(within(navigation).getByRole("button",{name:"本体"}));
+    fireEvent.click(screen.getByRole("button",{name:"编辑销售金额"}));
+    const dialog=screen.getByRole("dialog");
+    expect(within(dialog).getByLabelText(/业务单位/)).toHaveValue("元");
+    expect(within(dialog).getByLabelText(/币种/)).toHaveValue("CNY");
+    expect(within(dialog).getByRole("checkbox",{name:"支持值检索"})).toBeDisabled();
   });
 
   it("creates ontology objects from multiple physical tables in one request", async () => {

@@ -31,6 +31,24 @@ describe("ontology validation", () => {
     snapshot.objects[0].properties.find((property) => property.id === "prop_customer_id")!.meaning = "NUMBER";
     expect(validateSnapshot(snapshot).map((issue) => issue.code)).toContain("RELATION_SOURCE_NOT_REFERENCE");
   });
+
+  it("limits value search to the four governed semantic meanings", () => {
+    const snapshot = structuredClone(sampleSnapshot);
+    const region = snapshot.objects[2].properties.find((property) => property.id === "prop_region_name")!;
+    region.valueSearchable = true;
+    expect(validateSnapshot(snapshot).map((issue) => issue.code)).toContain("VALUE_SEARCH_INVALID");
+    region.meaning = "BOOLEAN";
+    expect(validateSnapshot(snapshot).map((issue) => issue.code)).not.toContain("VALUE_SEARCH_INVALID");
+  });
+
+  it("requires units for quantities and units plus currency for money", () => {
+    const snapshot = structuredClone(sampleSnapshot);
+    const amount = snapshot.objects[0].properties.find((property) => property.id === "prop_sales_amount")!;
+    amount.numericSpec = { kind: "GENERAL", defaultAggregation: "SUM", aggregationBehavior: "ADDITIVE" };
+    expect(validateSnapshot(snapshot).map((issue) => issue.code)).toContain("NUMBER_UNIT_REQUIRED");
+    amount.numericSpec = { kind: "CURRENCY", unit: "元", defaultAggregation: "SUM", aggregationBehavior: "ADDITIVE" };
+    expect(validateSnapshot(snapshot).map((issue) => issue.code)).toContain("CURRENCY_SPEC_REQUIRED");
+  });
 });
 
 describe("runtime and compiler", () => {
@@ -39,15 +57,15 @@ describe("runtime and compiler", () => {
   });
 
   it("binds known business values", () => {
-    expect(bindValue(sampleSnapshot, "华东")[0].propertyId).toBe("prop_region_name");
+    expect(bindValue(sampleSnapshot, "核心区域")[0].propertyId).toBe("prop_region_tier");
   });
 
   it("uses EXISTS for a related value filter", () => {
-    const plan = compilePlan(sampleSnapshot, { query: "今年华东销售额按月趋势", metricId: "metric_sales", timeGrain: "MONTH", boundValue: bindValue(sampleSnapshot, "华东")[0] });
+    const plan = compilePlan(sampleSnapshot, { query: "今年核心区域销售额按月趋势", metricId: "metric_sales", timeGrain: "MONTH", boundValue: bindValue(sampleSnapshot, "核心区域")[0] });
     expect(plan.sql).toContain("EXISTS (SELECT 1 FROM `dim_region`");
     expect(plan.sql).not.toContain("DELETE");
     const year = new Date().getUTCFullYear();
-    expect(plan.params).toEqual([`${year}-01-01`, `${year + 1}-01-01`, "华东"]);
+    expect(plan.params).toEqual([`${year}-01-01`, `${year + 1}-01-01`, "核心区域"]);
   });
 
   it("guards a derived ratio denominator with NULLIF", () => {

@@ -36,8 +36,8 @@ export const sampleSnapshot: OntologySnapshot = {
         { ...analytical, id: "prop_region_id", name: "region_id", label: "区域引用", dataType: "BIGINT", sourceColumn: "region_id", meaning: "ENTITY_REFERENCE", unique: false, valueSearchable: false },
         { ...analytical, id: "prop_channel", name: "channel", label: "销售渠道", dataType: "VARCHAR", sourceColumn: "channel_name", meaning: "CATEGORY", unique: false, valueSearchable: true, synonyms: ["渠道", "来源"] },
         { ...analytical, id: "prop_order_time", name: "order_time", label: "下单时间", dataType: "DATETIME", sourceColumn: "order_time", meaning: "TIME", unique: false, valueSearchable: false, synonyms: ["订单日期", "销售时间"] },
-        { ...analytical, id: "prop_sales_amount", name: "sales_amount", label: "销售金额", dataType: "DECIMAL", sourceColumn: "sales_amount", meaning: "NUMBER", unique: false, valueSearchable: false, numericSpec: { kind: "CURRENCY", currency: "CNY", defaultAggregation: "SUM", aggregationBehavior: "ADDITIVE" } },
-        { ...analytical, id: "prop_cost_amount", name: "cost_amount", label: "成本金额", dataType: "DECIMAL", sourceColumn: "cost_amount", meaning: "NUMBER", unique: false, valueSearchable: false, numericSpec: { kind: "CURRENCY", currency: "CNY", defaultAggregation: "SUM", aggregationBehavior: "ADDITIVE" } },
+        { ...analytical, id: "prop_sales_amount", name: "sales_amount", label: "销售金额", dataType: "DECIMAL", sourceColumn: "sales_amount", meaning: "NUMBER", unique: false, valueSearchable: false, numericSpec: { kind: "CURRENCY", unit: "元", currency: "CNY", defaultAggregation: "SUM", aggregationBehavior: "ADDITIVE" } },
+        { ...analytical, id: "prop_cost_amount", name: "cost_amount", label: "成本金额", dataType: "DECIMAL", sourceColumn: "cost_amount", meaning: "NUMBER", unique: false, valueSearchable: false, numericSpec: { kind: "CURRENCY", unit: "元", currency: "CNY", defaultAggregation: "SUM", aggregationBehavior: "ADDITIVE" } },
       ],
     },
     {
@@ -72,7 +72,8 @@ export const sampleSnapshot: OntologySnapshot = {
       bindingPriority: 90,
       properties: [
         { ...analytical, id: "prop_region_pk", name: "region_id", label: "区域 ID", dataType: "BIGINT", sourceColumn: "region_id", meaning: "ID", unique: true, valueSearchable: false },
-        { ...analytical, id: "prop_region_name", name: "region_name", label: "区域名称", dataType: "VARCHAR", sourceColumn: "region_name", meaning: "GEOGRAPHY", unique: true, valueSearchable: true, defaultDisplay: true, synonyms: ["大区名称", "地区"] },
+        { ...analytical, id: "prop_region_name", name: "region_name", label: "区域名称", dataType: "VARCHAR", sourceColumn: "region_name", meaning: "GEOGRAPHY", unique: true, valueSearchable: false, defaultDisplay: true, synonyms: ["大区名称", "地区"] },
+        { ...analytical, id: "prop_region_tier", name: "region_tier", label: "区域级别", dataType: "VARCHAR", sourceColumn: "region_tier", meaning: "CATEGORY", unique: false, valueSearchable: true, synonyms: ["区域分类"] },
       ],
     },
   ],
