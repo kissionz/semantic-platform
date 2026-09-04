@@ -254,7 +254,7 @@ p { color: var(--text-2); line-height: 1.65; }
 .property-heading > div { display: flex; align-items: baseline; gap: 8px; }
 .property-heading span { color: var(--text-3); font-size: 11px; }
 .property-table { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-.property-row { min-height: 55px; display: grid; grid-template-columns: 1.25fr .8fr 1fr .6fr; gap: 14px; align-items: center; padding: 8px 15px; border-top: 1px solid var(--border); font-size: 12px; }
+.property-row { min-height: 55px; display: grid; grid-template-columns: 1.2fr .9fr 1fr .55fr 68px; gap: 14px; align-items: center; padding: 8px 15px; border-top: 1px solid var(--border); font-size: 12px; }
 .property-row:first-child { border-top: 0; }
 .property-row.table-head { min-height: 36px; background: var(--surface-muted); color: var(--text-3); font-size: 10px; font-weight: 650; }
 .property-row > span:first-child { display: grid; gap: 1px; }
@@ -283,6 +283,29 @@ p { color: var(--text-2); line-height: 1.65; }
 .empty-state p, .lab-placeholder p { font-size: 13px; max-width: 48ch; }
 .empty-state button { margin-top: 8px; }
 .dialog-form { display: grid; gap: 16px; padding-top: 16px; }
+.wide-dialog { width: min(760px, calc(100vw - 48px)); max-width: 760px; }
+.batch-table-summary { min-height: 42px; display: flex; align-items: center; gap: 9px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); color: var(--text-3); font-size: 11px; }
+.batch-table-summary strong { color: var(--text); font-size: 15px; margin-right: 14px; }
+.batch-table-list { max-height: 460px; overflow: auto; border: 1px solid var(--border); border-radius: 9px; }
+.batch-table-row { min-height: 64px; display: grid; grid-template-columns: 28px minmax(180px, 1fr); gap: 10px; align-items: center; padding: 12px 14px; border-top: 1px solid var(--border); }
+.batch-table-row:first-child { border-top: 0; }
+.batch-table-row.selected { grid-template-columns: 28px minmax(150px, .8fr) minmax(320px, 1.4fr); background: var(--accent-soft); }
+.batch-table-identity { display: grid; gap: 3px; min-width: 0; }
+.batch-table-identity strong { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.batch-table-identity span { color: var(--text-3); font-size: 10px; }
+.batch-table-config, .relation-form-grid, .composition-grid, .property-editor-grid, .numeric-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.physical-property { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface-muted); }
+.physical-property > div { min-height: 56px; padding: 9px 12px; display: grid; align-content: center; gap: 3px; border-right: 1px solid var(--border); }
+.physical-property > div:last-child { border-right: 0; }
+.physical-property span { color: var(--text-3); font-size: 9px; }
+.physical-property strong { font: 600 11px "SFMono-Regular", monospace; overflow: hidden; text-overflow: ellipsis; }
+.property-options { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; }
+.numeric-rules { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 2px; }
+.relation-inference { min-height: 64px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 2px 14px; padding: 11px 14px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 8px; background: var(--accent-soft); }
+.relation-inference > span { grid-row: span 2; padding: 4px 7px; border-radius: 5px; background: var(--accent); color: white; font-size: 9px; font-weight: 700; }
+.relation-inference strong { color: var(--text); font-size: 12px; }
+.relation-inference small { color: var(--text-3); font-size: 10px; }
+.composition-grid { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
 
 .lab-grid { display: grid; grid-template-columns: minmax(0, 1fr) 288px; gap: 20px; align-items: start; }
 .lab-main { display: grid; gap: 16px; }

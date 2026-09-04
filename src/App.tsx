@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Badge,
   Button,
+  Checkbox,
   createDarkTheme,
   createLightTheme,
   Dialog,
@@ -16,6 +17,7 @@ import {
   Input,
   Select,
   Spinner,
+  Textarea,
   Tooltip,
 } from "@fluentui/react-components";
 import type { BrandVariants } from "@fluentui/react-components";
@@ -36,6 +38,7 @@ import {
   ListMagnifyingGlass,
   MagnifyingGlass,
   Moon,
+  PencilSimple,
   PlugsConnected,
   Plus,
   RocketLaunch,
@@ -47,7 +50,8 @@ import {
   Warning,
 } from "@phosphor-icons/react";
 import { validateSnapshot } from "./domain/engine";
-import type { Metric, ObjectType, OntologyRelation, OntologySnapshot, ValidationIssue } from "./domain/types";
+import { inferCardinality, inferObjectType, inferRelationType, propertyMeaningLabels, relationTypeLabels } from "./domain/modeling";
+import type { Metric, ObjectType, OntologyObject, OntologyProperty, OntologyRelation, OntologySnapshot, ValidationIssue } from "./domain/types";
 import { api, type Audit as AuditRecord, type Bootstrap, type Source, type Table } from "./api";
 
 type Page = "dashboard" | "ontology" | "data" | "query" | "audit" | "api" | "users";
@@ -67,6 +71,13 @@ const cardinalityLabels: Record<OntologyRelation["cardinality"], string> = {
   ONE_TO_MANY: "1:N",
   MANY_TO_ONE: "N:1",
   MANY_TO_MANY: "N:N",
+};
+
+const reverseCardinality: Record<OntologyRelation["cardinality"], OntologyRelation["cardinality"]> = {
+  ONE_TO_ONE: "ONE_TO_ONE",
+  ONE_TO_MANY: "MANY_TO_ONE",
+  MANY_TO_ONE: "ONE_TO_MANY",
+  MANY_TO_MANY: "MANY_TO_MANY",
 };
 
 const semanticBrand: BrandVariants = {
@@ -294,11 +305,48 @@ function Dashboard({ data, snapshot, onNavigate }: { data: Bootstrap; snapshot: 
   </main>;
 }
 
-function NewFromTableDialog({ tables, onCreated }: { tables: Table[]; onCreated: () => Promise<void> }) {
-  const [open,setOpen]=useState(false); const [tableId,setTableId]=useState(tables[0]?.id||""); const [label,setLabel]=useState(""); const [objectType,setObjectType]=useState<ObjectType>("ENTITY"); const [idColumn,setIdColumn]=useState(""); const [timeColumn,setTimeColumn]=useState(""); const [error,setError]=useState(""); const [saving,setSaving]=useState(false);
-  const table=tables.find(item=>item.id===tableId); const choose=(id:string)=>{setTableId(id);const next=tables.find(item=>item.id===id);setLabel(next?.comment||next?.name||"");setIdColumn(next?.columns.find(column=>/(^|_)id$/.test(column.name))?.name||"");setTimeColumn(next?.columns.find(column=>column.partition||/date|time|_dt$/.test(column.name))?.name||"")};
-  const create=async()=>{setSaving(true);setError("");try{await api.modelTable({tableId,label,objectType,idColumn:idColumn||undefined,timeColumn:timeColumn||undefined});await onCreated();setOpen(false);}catch(reason){setError(reason instanceof Error?reason.message:"创建失败")}finally{setSaving(false)}};
-  return <Dialog open={open} onOpenChange={(_,data)=>{setOpen(data.open);if(data.open&&tables[0]&&!label)choose(tableId||tables[0].id)}}><DialogTrigger disableButtonEnhancement><Button appearance="primary" icon={<Database/>} disabled={!tables.length}>从物理表建模</Button></DialogTrigger><DialogSurface><DialogBody><DialogTitle>从物理表创建对象</DialogTitle><DialogContent className="dialog-form"><Field label="物理表" required><Select value={tableId} onChange={event=>choose(event.target.value)}><option value="">选择已添加的表</option>{tables.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field><Field label="业务名称" required><Input value={label} onChange={(_,data)=>setLabel(data.value)}/></Field><Field label="对象类型" required><Select value={objectType} onChange={event=>setObjectType(event.target.value as ObjectType)}>{Object.entries(objectTypeLabels).map(([value,text])=><option value={value} key={value}>{text}</option>)}</Select></Field><Field label="ID 字段"><Select value={idColumn} onChange={event=>setIdColumn(event.target.value)}><option value="">待后续配置</option>{table?.columns.map(column=><option value={column.name} key={column.name}>{column.name}</option>)}</Select></Field><Field label="时间字段"><Select value={timeColumn} onChange={event=>setTimeColumn(event.target.value)}><option value="">不指定</option>{table?.columns.map(column=><option value={column.name} key={column.name}>{column.name}</option>)}</Select></Field>{error&&<div className="form-error">{error}</div>}</DialogContent><DialogActions><Button appearance="secondary" onClick={()=>setOpen(false)}>取消</Button><Button appearance="primary" onClick={create} disabled={!tableId||!label||saving}>{saving?"正在创建":"创建草稿对象"}</Button></DialogActions></DialogBody></DialogSurface></Dialog>;
+function NewFromTableDialog({ tables, snapshot, onCreated }: { tables: Table[]; snapshot: OntologySnapshot; onCreated: () => Promise<void> }) {
+  type TableConfig = { label: string; objectType: ObjectType };
+  const modeled = new Set(snapshot.objects.map((object) => object.sourceTableId));
+  const available = tables.filter((table) => !modeled.has([table.project, table.schema, table.name].filter(Boolean).join(".")));
+  const [open, setOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [configs, setConfigs] = useState<Record<string, TableConfig>>({});
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const initialize = () => {
+    setSelectedIds([]);
+    setConfigs(Object.fromEntries(available.map((table) => [table.id, { label: table.comment || table.name, objectType: inferObjectType(table.name, table.columns) }])));
+    setError("");
+  };
+  const toggle = (tableId: string, checked: boolean) => setSelectedIds((current) => checked ? [...current, tableId] : current.filter((id) => id !== tableId));
+  const update = (tableId: string, changes: Partial<TableConfig>) => setConfigs((current) => ({ ...current, [tableId]: { ...current[tableId], ...changes } }));
+  const create = async () => {
+    setSaving(true); setError("");
+    try {
+      await api.modelTables({ tables: selectedIds.map((tableId) => ({ tableId, label: configs[tableId]?.label, objectType: configs[tableId]?.objectType })) });
+      await onCreated(); setOpen(false);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "创建失败"); }
+    finally { setSaving(false); }
+  };
+  return <Dialog open={open} onOpenChange={(_, data) => { setOpen(data.open); if (data.open) initialize(); }}>
+    <DialogTrigger disableButtonEnhancement><Button appearance="primary" icon={<Database />} disabled={!available.length}>从物理表建模</Button></DialogTrigger>
+    <DialogSurface className="wide-dialog"><DialogBody><DialogTitle>选择物理表建模</DialogTitle><DialogContent className="dialog-form">
+      <div className="batch-table-summary"><span>可选物理表</span><strong>{available.length}</strong><span>已选择</span><strong>{selectedIds.length}</strong></div>
+      <div className="batch-table-list">
+        {available.map((table) => {
+          const selected = selectedIds.includes(table.id); const config = configs[table.id];
+          return <div className={`batch-table-row ${selected ? "selected" : ""}`} key={table.id}>
+            <Checkbox aria-label={`选择 ${table.name}`} checked={selected} onChange={(_, data) => toggle(table.id, data.checked === true)} />
+            <div className="batch-table-identity"><strong>{table.name}</strong><span>{table.project}{table.schema ? ` · ${table.schema}` : ""} · {table.columns.length} 个字段</span></div>
+            {selected && <div className="batch-table-config"><Field label="业务名称"><Input value={config?.label || ""} onChange={(_, data) => update(table.id, { label: data.value })} /></Field><Field label="对象类型"><Select value={config?.objectType || "ENTITY"} onChange={(event) => update(table.id, { objectType: event.target.value as ObjectType })}>{Object.entries(objectTypeLabels).map(([value, text]) => <option value={value} key={value}>{text}</option>)}</Select></Field></div>}
+          </div>;
+        })}
+        {!available.length && <div className="catalog-empty-state"><CheckCircle size={26} /><span>目录中的物理表都已建模</span></div>}
+      </div>
+      {error && <div className="form-error">{error}</div>}
+    </DialogContent><DialogActions><Button appearance="secondary" onClick={() => setOpen(false)}>取消</Button><Button appearance="primary" onClick={create} disabled={!selectedIds.length || selectedIds.some((id) => !configs[id]?.label.trim()) || saving}>{saving ? "正在创建" : `创建 ${selectedIds.length} 个对象`}</Button></DialogActions></DialogBody></DialogSurface>
+  </Dialog>;
 }
 
 function NewMetricDialog({ snapshot, onCreate }: { snapshot: OntologySnapshot; onCreate: (metric:Metric)=>void }) {
@@ -308,11 +356,78 @@ function NewMetricDialog({ snapshot, onCreate }: { snapshot: OntologySnapshot; o
   return <Dialog open={open} onOpenChange={(_,data)=>setOpen(data.open)}><DialogTrigger disableButtonEnhancement><Button appearance="secondary" icon={<ChartBar/>} disabled={!snapshot.objects.length}>新建指标</Button></DialogTrigger><DialogSurface><DialogBody><DialogTitle>创建基础指标</DialogTitle><DialogContent className="dialog-form"><Field label="指标名称" required><Input value={label} onChange={(_,data)=>setLabel(data.value)}/></Field><Field label="事实对象" required><Select value={objectId} onChange={event=>{setObjectId(event.target.value);setPropertyId("")}}><option value="">选择对象</option>{snapshot.objects.map(item=><option value={item.id} key={item.id}>{item.label}</option>)}</Select></Field><Field label="数值属性" required><Select value={propertyId} onChange={event=>setPropertyId(event.target.value)}><option value="">选择属性</option>{numbers.map(property=><option value={property.id} key={property.id}>{property.label}</option>)}</Select></Field><Field label="聚合方式"><Select value={aggregation} onChange={event=>setAggregation(event.target.value as Metric["aggregation"])}>{["SUM","COUNT","COUNT_DISTINCT","AVG","MIN","MAX"].map(value=><option value={value} key={value}>{value}</option>)}</Select></Field></DialogContent><DialogActions><Button appearance="secondary" onClick={()=>setOpen(false)}>取消</Button><Button appearance="primary" onClick={create} disabled={!label||!propertyId}>创建指标</Button></DialogActions></DialogBody></DialogSurface></Dialog>;
 }
 
+function EditPropertyDialog({ object, property, relations, onChange }: { object: OntologyObject; property: OntologyProperty; relations: OntologyRelation[]; onChange: (property: OntologyProperty) => void }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(property);
+  const sourceRelation = relations.find((relation) => relation.sourcePropertyId === property.id);
+  const targetRelation = relations.find((relation) => relation.targetPropertyId === property.id);
+  const sourceMeaningLocked = Boolean(sourceRelation && !["HIERARCHY", "IDENTITY"].includes(sourceRelation.type));
+  const structural = sourceMeaningLocked || Boolean(targetRelation);
+  const allowIdMeaning = ["ENTITY", "EVENT"].includes(object.objectType) && (property.meaning === "ID" || !object.properties.some((item) => item.meaning === "ID"));
+  const set = <K extends keyof OntologyProperty>(key: K, value: OntologyProperty[K]) => setDraft((current) => ({ ...current, [key]: value }));
+  const save = () => {
+    let next = { ...draft, label: draft.label.trim(), name: draft.name.trim(), description: draft.description.trim(), synonyms: draft.synonyms.map((item) => item.trim()).filter(Boolean) };
+    if (sourceMeaningLocked) next = { ...next, meaning: "ENTITY_REFERENCE", visibility: "ANALYTICAL", valueSearchable: false };
+    if (targetRelation || next.meaning === "ID") next = { ...next, meaning: "ID", unique: true, visibility: "ANALYTICAL", valueSearchable: false };
+    if (next.meaning !== "NUMBER") next = { ...next, numericSpec: undefined };
+    if (next.meaning === "NUMBER" && !next.numericSpec) next = { ...next, numericSpec: { kind: "GENERAL", defaultAggregation: "SUM", aggregationBehavior: "ADDITIVE" } };
+    if (next.sensitive || next.visibility !== "ANALYTICAL") next = { ...next, valueSearchable: false };
+    onChange(next); setOpen(false);
+  };
+  return <Dialog open={open} onOpenChange={(_, data) => { setOpen(data.open); if (data.open) setDraft(property); }}>
+    <DialogTrigger disableButtonEnhancement><Tooltip content="编辑属性" relationship="label"><Button appearance="subtle" size="small" icon={<PencilSimple />} aria-label={`编辑${property.label}`} /></Tooltip></DialogTrigger>
+    <DialogSurface className="wide-dialog"><DialogBody><DialogTitle>编辑属性</DialogTitle><DialogContent className="dialog-form property-editor">
+      <div className="physical-property"><div><span>物理字段</span><strong>{property.sourceColumn}</strong></div><div><span>数据类型</span><strong>{property.dataType}</strong></div><div><span>所属对象</span><strong>{object.label}</strong></div></div>
+      <div className="property-editor-grid"><Field label="业务名称" required><Input value={draft.label} onChange={(_, data) => set("label", data.value)} /></Field><Field label="机器名称" required><Input value={draft.name} onChange={(_, data) => set("name", data.value)} /></Field><Field label="语义类型" required hint={structural ? "关系键的语义由关系约束" : undefined}><Select value={targetRelation ? "ID" : sourceMeaningLocked ? "ENTITY_REFERENCE" : draft.meaning} disabled={structural} onChange={(event) => set("meaning", event.target.value as OntologyProperty["meaning"])}>{Object.entries(propertyMeaningLabels).filter(([value]) => value !== "ID" || allowIdMeaning).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field><Field label="查询可见性"><Select value={structural ? "ANALYTICAL" : draft.visibility} disabled={structural} onChange={(event) => set("visibility", event.target.value as OntologyProperty["visibility"])}><option value="ANALYTICAL">可分析</option><option value="DETAIL_ONLY">仅明细</option><option value="HIDDEN">隐藏</option></Select></Field><Field label="绑定优先级"><Input type="number" min={0} max={1000} value={String(draft.bindingPriority)} onChange={(_, data) => set("bindingPriority", Number(data.value) || 0)} /></Field><Field label="同义词" hint="使用逗号分隔"><Input value={draft.synonyms.join("，")} onChange={(_, data) => set("synonyms", data.value.split(/[,，]/))} /></Field></div>
+      <Field label="业务描述"><Textarea resize="vertical" value={draft.description} onChange={(_, data) => set("description", data.value)} /></Field>
+      <div className="property-options" aria-label="属性规则"><Checkbox label="唯一值" checked={targetRelation || draft.meaning === "ID" ? true : draft.unique} disabled={Boolean(targetRelation) || draft.meaning === "ID"} onChange={(_, data) => set("unique", data.checked === true)} /><Checkbox label="敏感字段" checked={draft.sensitive} onChange={(_, data) => set("sensitive", data.checked === true)} /><Checkbox label="支持值检索" checked={draft.valueSearchable} disabled={structural || draft.sensitive || draft.visibility !== "ANALYTICAL"} onChange={(_, data) => set("valueSearchable", data.checked === true)} /><Checkbox label="默认展示" checked={draft.defaultDisplay} onChange={(_, data) => set("defaultDisplay", data.checked === true)} /><Checkbox label="允许导出" checked={draft.exportable} onChange={(_, data) => set("exportable", data.checked === true)} /></div>
+      {draft.meaning === "NUMBER" && <div className="numeric-rules"><Field label="数值类型"><Select value={draft.numericSpec?.kind || "GENERAL"} onChange={(event) => set("numericSpec", { ...(draft.numericSpec || { defaultAggregation: "SUM", aggregationBehavior: "ADDITIVE" }), kind: event.target.value as "GENERAL" | "CURRENCY" | "RATIO" })}><option value="GENERAL">普通数值</option><option value="CURRENCY">金额</option><option value="RATIO">比例</option></Select></Field><Field label="默认聚合"><Select value={draft.numericSpec?.defaultAggregation || "SUM"} onChange={(event) => set("numericSpec", { ...(draft.numericSpec || { kind: "GENERAL", aggregationBehavior: "ADDITIVE" }), defaultAggregation: event.target.value as "SUM" | "AVG" | "MIN" | "MAX" | "NONE" })}><option value="SUM">SUM</option><option value="AVG">AVG</option><option value="MIN">MIN</option><option value="MAX">MAX</option><option value="NONE">NONE</option></Select></Field><Field label="可加性"><Select value={draft.numericSpec?.aggregationBehavior || "ADDITIVE"} onChange={(event) => set("numericSpec", { ...(draft.numericSpec || { kind: "GENERAL", defaultAggregation: "SUM" }), aggregationBehavior: event.target.value as "ADDITIVE" | "SEMI_ADDITIVE" | "NON_ADDITIVE" })}><option value="ADDITIVE">可加</option><option value="SEMI_ADDITIVE">半可加</option><option value="NON_ADDITIVE">不可加</option></Select></Field></div>}
+    </DialogContent><DialogActions><Button appearance="secondary" onClick={() => setOpen(false)}>取消</Button><Button appearance="primary" onClick={save} disabled={!draft.label.trim() || !draft.name.trim()}>保存属性</Button></DialogActions></DialogBody></DialogSurface>
+  </Dialog>;
+}
+
 function NewRelationDialog({ snapshot, onCreate }: { snapshot: OntologySnapshot; onCreate:(relation:OntologyRelation)=>void }) {
-  const [open,setOpen]=useState(false); const [name,setName]=useState(""); const [sourceId,setSourceId]=useState(snapshot.objects[0]?.id||""); const [targetId,setTargetId]=useState(snapshot.objects[1]?.id||""); const [sourcePropertyId,setSourcePropertyId]=useState(""); const [targetPropertyId,setTargetPropertyId]=useState(""); const [cardinality,setCardinality]=useState<OntologyRelation["cardinality"]>("MANY_TO_ONE");
-  const source=snapshot.objects.find(item=>item.id===sourceId); const target=snapshot.objects.find(item=>item.id===targetId);
-  const create=()=>{const sourceProperty=source?.properties.find(item=>item.id===sourcePropertyId);const targetProperty=target?.properties.find(item=>item.id===targetPropertyId);if(!name||!source||!target||!sourceProperty||!targetProperty)return;onCreate({id:crypto.randomUUID(),name,sourceObjectId:source.id,targetObjectId:target.id,type:"REFERENCE",cardinality,sourcePropertyId,targetPropertyId,joinExpression:`${source.name}.${sourceProperty.sourceColumn} = ${target.name}.${targetProperty.sourceColumn}`,direction:"SOURCE_TO_TARGET",required:false,enabled:true,fanoutRisk:cardinality==="MANY_TO_MANY"?"HIGH":"NONE",status:"DRAFT"});setName("");setOpen(false)};
-  return <Dialog open={open} onOpenChange={(_,data)=>setOpen(data.open)}><DialogTrigger disableButtonEnhancement><Button appearance="secondary" icon={<GitBranch/>} disabled={snapshot.objects.length<2}>新建关系</Button></DialogTrigger><DialogSurface><DialogBody><DialogTitle>创建对象关系</DialogTitle><DialogContent className="dialog-form"><Field label="关系名称" required><Input value={name} onChange={(_,data)=>setName(data.value)}/></Field><Field label="来源对象" required><Select value={sourceId} onChange={event=>{setSourceId(event.target.value);setSourcePropertyId("")}}>{snapshot.objects.map(item=><option value={item.id} key={item.id}>{item.label}</option>)}</Select></Field><Field label="来源字段" required><Select value={sourcePropertyId} onChange={event=>setSourcePropertyId(event.target.value)}><option value="">选择字段</option>{source?.properties.map(item=><option value={item.id} key={item.id}>{item.label}</option>)}</Select></Field><Field label="目标对象" required><Select value={targetId} onChange={event=>{setTargetId(event.target.value);setTargetPropertyId("")}}>{snapshot.objects.map(item=><option value={item.id} key={item.id}>{item.label}</option>)}</Select></Field><Field label="目标字段" required><Select value={targetPropertyId} onChange={event=>setTargetPropertyId(event.target.value)}><option value="">选择字段</option>{target?.properties.map(item=><option value={item.id} key={item.id}>{item.label}</option>)}</Select></Field><Field label="基数"><Select value={cardinality} onChange={event=>setCardinality(event.target.value as OntologyRelation["cardinality"])}>{["ONE_TO_ONE","ONE_TO_MANY","MANY_TO_ONE","MANY_TO_MANY"].map(value=><option value={value} key={value}>{value}</option>)}</Select></Field></DialogContent><DialogActions><Button appearance="secondary" onClick={()=>setOpen(false)}>取消</Button><Button appearance="primary" disabled={!name||!sourcePropertyId||!targetPropertyId||sourceId===targetId} onClick={create}>创建关系</Button></DialogActions></DialogBody></DialogSurface></Dialog>;
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [sourceId, setSourceId] = useState("");
+  const [targetId, setTargetId] = useState("");
+  const [sourcePropertyId, setSourcePropertyId] = useState("");
+  const [targetPropertyId, setTargetPropertyId] = useState("");
+  const [type, setType] = useState<OntologyRelation["type"]>("REFERENCE");
+  const [ownership, setOwnership] = useState<"OWNED" | "SHARED">("OWNED");
+  const [aggregationPolicy, setAggregationPolicy] = useState<"PRE_AGGREGATE_CHILD" | "EXISTS_ONLY">("PRE_AGGREGATE_CHILD");
+  const source = snapshot.objects.find((item) => item.id === sourceId);
+  const target = snapshot.objects.find((item) => item.id === targetId);
+  const sourceProperty = source?.properties.find((item) => item.id === sourcePropertyId);
+  const targetProperty = target?.properties.find((item) => item.id === targetPropertyId);
+  const cardinality = sourceProperty && targetProperty ? inferCardinality(sourceProperty, targetProperty) : null;
+  const keyTypeMismatch = Boolean(sourceProperty && targetProperty && sourceProperty.dataType !== targetProperty.dataType);
+  const initialize = () => {
+    const initialSource = snapshot.objects[0]; const initialTarget = snapshot.objects[1] || snapshot.objects[0];
+    const sourceKey = initialSource?.properties.find((property) => property.meaning === "ENTITY_REFERENCE") || initialSource?.properties[0];
+    const targetKey = initialTarget?.properties.find((property) => property.meaning === "ID");
+    setName(""); setSourceId(initialSource?.id || ""); setTargetId(initialTarget?.id || ""); setSourcePropertyId(sourceKey?.id || ""); setTargetPropertyId(targetKey?.id || "");
+    setType(initialSource && initialTarget && sourceKey && targetKey ? inferRelationType(initialSource, initialTarget, sourceKey, targetKey) : "REFERENCE");
+    setOwnership("OWNED"); setAggregationPolicy("PRE_AGGREGATE_CHILD");
+  };
+  const chooseSource = (id: string) => { const next = snapshot.objects.find((object) => object.id === id); const key = next?.properties.find((property) => property.meaning === "ENTITY_REFERENCE") || next?.properties[0]; setSourceId(id); setSourcePropertyId(key?.id || ""); if (next && target && key && targetProperty) setType(inferRelationType(next, target, key, targetProperty)); };
+  const chooseTarget = (id: string) => { const next = snapshot.objects.find((object) => object.id === id); const key = next?.properties.find((property) => property.meaning === "ID"); setTargetId(id); setTargetPropertyId(key?.id || ""); if (source && next && sourceProperty && key) setType(inferRelationType(source, next, sourceProperty, key)); };
+  const create = () => {
+    if (!name.trim() || !source || !target || !sourceProperty || !targetProperty || !cardinality) return;
+    onCreate({ id: crypto.randomUUID(), name: name.trim(), sourceObjectId: source.id, targetObjectId: target.id, type, cardinality, sourcePropertyId, targetPropertyId, joinExpression: `${source.name}.${sourceProperty.sourceColumn} = ${target.name}.${targetProperty.sourceColumn}`, direction: "SOURCE_TO_TARGET", required: false, enabled: true, fanoutRisk: cardinality === "MANY_TO_MANY" ? "HIGH" : cardinality === "ONE_TO_MANY" ? "LOW" : "NONE", ...(type === "COMPOSITION" ? { composition: { childObjectId: source.id, parentObjectId: target.id, ownership, aggregationPolicy } } : {}), status: "DRAFT" });
+    setOpen(false);
+  };
+  const invalidSelfRelation = sourceId === targetId && type !== "HIERARCHY";
+  const invalidComposition = type === "COMPOSITION" && cardinality !== "MANY_TO_ONE" && cardinality !== "ONE_TO_ONE";
+  return <Dialog open={open} onOpenChange={(_, data) => { setOpen(data.open); if (data.open) initialize(); }}>
+    <DialogTrigger disableButtonEnhancement><Button appearance="secondary" icon={<GitBranch />} disabled={!snapshot.objects.length}>新建关系</Button></DialogTrigger>
+    <DialogSurface className="wide-dialog"><DialogBody><DialogTitle>创建对象关系</DialogTitle><DialogContent className="dialog-form">
+      <div className="relation-form-grid"><Field label="关系名称" required><Input value={name} onChange={(_, data) => setName(data.value)} /></Field><Field label="关系类型" required><Select value={type} onChange={(event) => setType(event.target.value as OntologyRelation["type"])}>{Object.entries(relationTypeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field><Field label="来源对象" required><Select value={sourceId} onChange={(event) => chooseSource(event.target.value)}>{snapshot.objects.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</Select></Field><Field label="来源字段" required><Select value={sourcePropertyId} onChange={(event) => { const id = event.target.value; setSourcePropertyId(id); const property = source?.properties.find((item) => item.id === id); if (source && target && property && targetProperty) setType(inferRelationType(source, target, property, targetProperty)); }}><option value="">选择字段</option>{source?.properties.map((item) => <option value={item.id} key={item.id}>{item.label}{item.unique ? " · 唯一" : ""}</option>)}</Select></Field><Field label="目标对象" required><Select value={targetId} onChange={(event) => chooseTarget(event.target.value)}>{snapshot.objects.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</Select></Field><Field label="目标字段" required hint="目标端使用对象唯一标识"><Select value={targetPropertyId} onChange={(event) => { const id = event.target.value; setTargetPropertyId(id); const property = target?.properties.find((item) => item.id === id); if (source && target && sourceProperty && property) setType(inferRelationType(source, target, sourceProperty, property)); }}><option value="">选择 ID 字段</option>{target?.properties.filter((item) => item.meaning === "ID").map((item) => <option value={item.id} key={item.id}>{item.label} · 唯一</option>)}</Select></Field></div>
+      {cardinality && <div className="relation-inference" role="status"><span>自动推断</span><strong>{source?.label} → {target?.label}：{cardinalityLabels[cardinality]}</strong><small>反向：{cardinalityLabels[reverseCardinality[cardinality]]} · 根据两端字段唯一性确定</small></div>}
+      {type === "COMPOSITION" && <div className="composition-grid"><Field label="归属方式"><Select value={ownership} onChange={(event) => setOwnership(event.target.value as "OWNED" | "SHARED")}><option value="OWNED">独占归属</option><option value="SHARED">共享归属</option></Select></Field><Field label="聚合策略"><Select value={aggregationPolicy} onChange={(event) => setAggregationPolicy(event.target.value as "PRE_AGGREGATE_CHILD" | "EXISTS_ONLY")}><option value="PRE_AGGREGATE_CHILD">子对象预聚合</option><option value="EXISTS_ONLY">仅用于存在性判断</option></Select></Field></div>}
+      {invalidSelfRelation && <div className="form-error">同一对象之间请使用父子层级关系</div>}{invalidComposition && <div className="form-error">主子关系需要 N:1 或 1:1 的字段唯一性</div>}{keyTypeMismatch && <div className="form-error">关系两端字段的数据类型需要一致</div>}
+    </DialogContent><DialogActions><Button appearance="secondary" onClick={() => setOpen(false)}>取消</Button><Button appearance="primary" disabled={!name.trim() || !sourcePropertyId || !targetPropertyId || invalidSelfRelation || invalidComposition || keyTypeMismatch} onClick={create}>创建关系</Button></DialogActions></DialogBody></DialogSurface>
+  </Dialog>;
 }
 
 function Ontology({ snapshot, setSnapshot, issues, onValidate, onSave, onPublish, tables, onModelTable }: { snapshot: OntologySnapshot; setSnapshot: (snapshot: OntologySnapshot) => void; issues: ValidationIssue[] | null; onValidate: () => void; onSave: () => void; onPublish: () => void; tables: Table[]; onModelTable: () => Promise<void> }) {
@@ -330,6 +445,15 @@ function Ontology({ snapshot, setSnapshot, issues, onValidate, onSave, onPublish
   const relations = snapshot.relations.filter((relation) => matchesQuery(relation.name));
   const resultCount = tab === "objects" ? objects.length : tab === "metrics" ? metrics.length : relations.length;
   const hasErrors = Boolean(issues?.some((issue) => issue.level === "ERROR"));
+  const updateProperty = (objectId: string, nextProperty: OntologyProperty) => {
+    const nextObjects = snapshot.objects.map((object) => {
+      if (object.id !== objectId) return object;
+      const properties = object.properties.map((property) => property.id === nextProperty.id ? nextProperty : nextProperty.meaning === "ID" && property.meaning === "ID" ? { ...property, meaning: "CODE" as const, unique: false } : property);
+      const idProperty = properties.find((property) => property.meaning === "ID");
+      return { ...object, properties, grainPropertyIds: idProperty ? [idProperty.id] : object.grainPropertyIds, grain: idProperty ? `${idProperty.label} 唯一记录` : object.grain };
+    });
+    setSnapshot({ ...snapshot, status: "DRAFT", objects: nextObjects });
+  };
   const renderCatalog = () => {
     if (!resultCount) return <p className="catalog-empty">{query ? "未找到结果" : "暂无内容"}</p>;
     if (tab === "objects") return objects.map((object) => <button key={object.id} onClick={() => setSelectedObjectId(object.id)} className={`catalog-row ${selectedObject?.id === object.id ? "active" : ""}`}><span className="catalog-icon"><Database size={17} /></span><span><strong>{object.label}</strong><small>{object.properties.length} 个属性</small></span><CaretRight size={14} /></button>);
@@ -342,7 +466,7 @@ function Ontology({ snapshot, setSnapshot, issues, onValidate, onSave, onPublish
       <div className="inspector-heading"><div><h2>{selectedObject.label}</h2><span>{selectedObject.name}</span></div><StatusBadge status={selectedObject.status} /></div>
       <div className="object-summary"><div><span>类型</span><strong>{objectTypeLabels[selectedObject.objectType]}</strong></div><div><span>粒度</span><strong>{selectedObject.grain}</strong></div><div><span>来源</span><strong className="mono">{selectedObject.sourceTableId}</strong></div><div><span>时间</span><strong>{selectedObject.properties.find((property) => property.id === selectedObject.defaultTimePropertyId)?.label ?? "未配置"}</strong></div></div>
       <div className="table-title"><h3>属性</h3><span>{selectedObject.properties.length}</span></div>
-      <div className="property-table" role="table" aria-label={`${selectedObject.label}属性列表`}><div className="property-row table-head" role="row"><span>名称</span><span>语义</span><span>物理字段</span><span>可见性</span></div>{selectedObject.properties.map((property) => <div className="property-row" role="row" key={property.id}><span><strong>{property.label}</strong><small>{property.name}</small></span><span><code>{property.meaning}</code></span><span className="mono">{property.sourceColumn}</span><span>{property.visibility === "ANALYTICAL" ? "可分析" : "受限"}</span></div>)}</div>
+      <div className="property-table" role="table" aria-label={`${selectedObject.label}属性列表`}><div className="property-row table-head" role="row"><span>名称</span><span>语义</span><span>物理字段</span><span>可见性</span><span>操作</span></div>{selectedObject.properties.map((property) => <div className="property-row" role="row" key={property.id}><span><strong>{property.label}</strong><small>{property.name}</small></span><span><code>{propertyMeaningLabels[property.meaning]}</code></span><span className="mono">{property.sourceColumn}</span><span>{property.visibility === "ANALYTICAL" ? "可分析" : property.visibility === "DETAIL_ONLY" ? "仅明细" : "隐藏"}</span><span><EditPropertyDialog object={selectedObject} property={property} relations={snapshot.relations} onChange={(next) => updateProperty(selectedObject.id, next)} /></span></div>)}</div>
     </>;
     if (tab === "metrics" && selectedMetric) {
       const owner = snapshot.objects.find((object) => object.id === selectedMetric.objectId);
@@ -362,7 +486,7 @@ function Ontology({ snapshot, setSnapshot, issues, onValidate, onSave, onPublish
   };
 
   return <main className="page ontology-page">
-    <section className="compact-page-header"><div><h1>业务本体</h1><div className="header-status"><StatusBadge status={snapshot.status} /><span>v{snapshot.version}</span></div></div><div className="header-actions"><NewMetricDialog snapshot={snapshot} onCreate={metric=>setSnapshot({...snapshot,status:"DRAFT",metrics:[...snapshot.metrics,metric]})}/><NewRelationDialog snapshot={snapshot} onCreate={relation=>setSnapshot({...snapshot,status:"DRAFT",relations:[...snapshot.relations,relation]})}/><NewFromTableDialog tables={tables} onCreated={onModelTable}/></div></section>
+    <section className="compact-page-header"><div><h1>业务本体</h1><div className="header-status"><StatusBadge status={snapshot.status} /><span>v{snapshot.version}</span></div></div><div className="header-actions"><NewMetricDialog snapshot={snapshot} onCreate={metric=>setSnapshot({...snapshot,status:"DRAFT",metrics:[...snapshot.metrics,metric]})}/><NewRelationDialog snapshot={snapshot} onCreate={relation=>{const objects=snapshot.objects.map(object=>object.id!==relation.sourceObjectId?object:{...object,properties:object.properties.map(property=>property.id===relation.sourcePropertyId&&!["HIERARCHY","IDENTITY"].includes(relation.type)?{...property,meaning:"ENTITY_REFERENCE" as const,visibility:"ANALYTICAL" as const,valueSearchable:false}:property)});setSnapshot({...snapshot,status:"DRAFT",objects,relations:[...snapshot.relations,relation]})}}/><NewFromTableDialog tables={tables} snapshot={snapshot} onCreated={onModelTable}/></div></section>
     <section className="ontology-stats" aria-label="本体统计"><div><CirclesThreePlus size={18} /><span>对象</span><strong>{snapshot.objects.length}</strong></div><div><ChartBar size={18} /><span>指标</span><strong>{snapshot.metrics.length}</strong></div><div><GitBranch size={18} /><span>关系</span><strong>{snapshot.relations.length}</strong></div><div><ShieldCheck size={18} /><span>校验</span><strong>{issues === null ? "未运行" : hasErrors ? `${issues.length} 项` : "通过"}</strong></div></section>
     <section className="ontology-workspace">
       <section className="panel ontology-catalog"><div className="workspace-panel-heading"><h2>目录</h2><span>{resultCount}</span></div><div className="catalog-tabs" role="tablist" aria-label="本体类型">{(["objects", "metrics", "relations"] as EntityTab[]).map((item) => <button role="tab" aria-selected={tab === item} className={tab === item ? "active" : ""} key={item} onClick={() => { setTab(item); setQuery(""); }}>{item === "objects" ? "对象" : item === "metrics" ? "指标" : "关系"}</button>)}</div><div className="catalog-search"><MagnifyingGlass size={15} /><input aria-label="搜索本体目录" placeholder="搜索" value={query} onChange={(event) => setQuery(event.target.value)} /></div><div className="catalog-list">{renderCatalog()}</div></section>

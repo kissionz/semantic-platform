@@ -1,4 +1,5 @@
 import type { AuditEvent, Metric, OntologyObject, OntologyProperty, OntologySnapshot, SearchHit, ValidationIssue } from "./types.js";
+import { inferCardinality } from "./modeling.js";
 
 const valueMeanings = new Set(["CODE", "NAME", "CATEGORY", "BOOLEAN", "GEOGRAPHY"]);
 
@@ -58,6 +59,8 @@ export function validateSnapshot(snapshot: OntologySnapshot): ValidationIssue[] 
     if (!source.properties.some((property) => property.id === relation.sourcePropertyId) || !target.properties.some((property) => property.id === relation.targetPropertyId)) error("RELATION_ENDPOINT_MISMATCH", relation.id, "关系键必须属于对应端对象");
     if (!relation.joinExpression.trim() || hasUnsafeSql(relation.joinExpression)) error("RELATION_EXPRESSION_UNSAFE", relation.id, "关系表达式为空或包含不安全内容");
     if (targetProperty?.meaning !== "ID") error("RELATION_TARGET_NOT_ID", relation.id, "关系目标属性必须是目标对象 ID");
+    if (sourceProperty && !["HIERARCHY", "IDENTITY"].includes(relation.type) && sourceProperty.meaning !== "ENTITY_REFERENCE") error("RELATION_SOURCE_NOT_REFERENCE", relation.id, "关系来源属性必须是实体引用");
+    if (sourceProperty && targetProperty && relation.cardinality !== inferCardinality(sourceProperty, targetProperty)) error("RELATION_CARDINALITY_MISMATCH", relation.id, "关系基数必须与两端字段唯一性一致");
     if (sourceProperty && targetProperty && sourceProperty.dataType !== targetProperty.dataType) error("RELATION_KEY_TYPE_MISMATCH", relation.id, "关系两端属性数据类型不一致");
     if (relation.cardinality === "MANY_TO_MANY") warn("RELATION_FANOUT_UNSAFE", relation.id, "多对多关系将在聚合计划中被拒绝");
     if (relation.fanoutRisk === "HIGH") warn("RELATION_HIGH_RISK", relation.id, "高扇出关系不会进入安全计划");

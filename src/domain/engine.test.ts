@@ -19,6 +19,18 @@ describe("ontology validation", () => {
     amount.numericSpec!.aggregationBehavior = "NON_ADDITIVE";
     expect(validateSnapshot(snapshot).map((issue) => issue.code)).toContain("NON_ADDITIVE_SUM");
   });
+
+  it("rejects relationship cardinality that differs from endpoint uniqueness", () => {
+    const snapshot = structuredClone(sampleSnapshot);
+    snapshot.relations[0].cardinality = "ONE_TO_ONE";
+    expect(validateSnapshot(snapshot).map((issue) => issue.code)).toContain("RELATION_CARDINALITY_MISMATCH");
+  });
+
+  it("requires a governed reference property on the relationship source", () => {
+    const snapshot = structuredClone(sampleSnapshot);
+    snapshot.objects[0].properties.find((property) => property.id === "prop_customer_id")!.meaning = "NUMBER";
+    expect(validateSnapshot(snapshot).map((issue) => issue.code)).toContain("RELATION_SOURCE_NOT_REFERENCE");
+  });
 });
 
 describe("runtime and compiler", () => {
