@@ -125,6 +125,28 @@ describe("independent platform shell", () => {
     expect(within(dialog).getByRole("checkbox",{name:"支持值检索"})).toBeDisabled();
   });
 
+  it("fills legacy numeric requirements and keeps each numeric form balanced", async () => {
+    const legacySnapshot=structuredClone(sampleSnapshot);
+    const amount=legacySnapshot.objects[0].properties.find((property)=>property.label==="销售金额")!;
+    amount.numericSpec={kind:"CURRENCY",defaultAggregation:"SUM",aggregationBehavior:"ADDITIVE"};
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      if(String(input).endsWith("/api/bootstrap"))return new Response(JSON.stringify({...bootstrap,draft:legacySnapshot}),{status:200,headers:{"Content-Type":"application/json"}});
+      return new Response(JSON.stringify({ok:true}),{status:200,headers:{"Content-Type":"application/json"}});
+    });
+    render(<App/>);
+    const navigation=await screen.findByRole("navigation",{name:"主要导航"});
+    fireEvent.click(within(navigation).getByRole("button",{name:"本体"}));
+    fireEvent.click(screen.getByRole("button",{name:"编辑销售金额"}));
+    const dialog=screen.getByRole("dialog");
+    expect(within(dialog).getByLabelText(/业务单位/)).toHaveValue("元");
+    expect(within(dialog).getByLabelText(/币种/)).toHaveValue("CNY");
+    expect(dialog.querySelector(".numeric-rules")).toHaveClass("currency");
+    expect(within(dialog).getByRole("button",{name:"保存属性"})).toBeEnabled();
+    fireEvent.change(within(dialog).getByLabelText(/数值类型/),{target:{value:"GENERAL"}});
+    expect(within(dialog).getByLabelText(/业务单位/)).toHaveValue("个");
+    expect(dialog.querySelector(".numeric-rules")).toHaveClass("general");
+  });
+
   it("creates ontology objects from multiple physical tables in one request", async () => {
     const tables = [
       {id:"table-orders",sourceId:"source-1",project:"retail",name:"fact_orders",type:"TABLE",columns:[{name:"order_id",dataType:"BIGINT",nullable:false,partition:false}],fingerprint:"a",addedAt:new Date().toISOString()},

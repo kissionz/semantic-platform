@@ -1,4 +1,4 @@
-import type { OntologyObject, OntologyProperty, OntologyRelation, ObjectType, PropertyMeaning } from "./types.js";
+import type { NumericPropertySpec, OntologyObject, OntologyProperty, OntologyRelation, OntologySnapshot, ObjectType, PropertyMeaning } from "./types.js";
 
 export const relationTypeLabels: Record<OntologyRelation["type"], string> = {
   REFERENCE: "引用关系",
@@ -24,6 +24,41 @@ export const propertyMeaningLabels: Record<PropertyMeaning, string> = {
 };
 
 export const valueSearchableMeanings = new Set<PropertyMeaning>(["CODE", "NAME", "CATEGORY", "BOOLEAN"]);
+
+export function defaultNumericSpec(kind: NumericPropertySpec["kind"] = "GENERAL"): NumericPropertySpec {
+  if (kind === "CURRENCY") return { kind, unit: "元", currency: "CNY", defaultAggregation: "SUM", aggregationBehavior: "ADDITIVE" };
+  if (kind === "RATIO") return { kind, defaultAggregation: "AVG", aggregationBehavior: "NON_ADDITIVE" };
+  return { kind, unit: "个", defaultAggregation: "SUM", aggregationBehavior: "ADDITIVE" };
+}
+
+export function hydrateNumericSpec(spec?: NumericPropertySpec): NumericPropertySpec {
+  const defaults = defaultNumericSpec(spec?.kind);
+  if (!spec) return defaults;
+  return {
+    ...defaults,
+    ...spec,
+    unit: spec.kind === "RATIO" ? undefined : spec.unit?.trim() || defaults.unit,
+    currency: spec.kind === "CURRENCY" ? spec.currency?.trim().toUpperCase() || defaults.currency : undefined,
+  };
+}
+
+export function inferNumericKind(name: string): NumericPropertySpec["kind"] {
+  if (/(^|_)(amount|revenue|cost|price|fee|money|gmv|sales)(_|$)/i.test(name)) return "CURRENCY";
+  if (/(^|_)(rate|ratio|pct|percent|margin)(_|$)/i.test(name)) return "RATIO";
+  return "GENERAL";
+}
+
+export function applyOntologyDefaults(snapshot: OntologySnapshot): OntologySnapshot {
+  return {
+    ...snapshot,
+    objects: snapshot.objects.map((object) => ({
+      ...object,
+      properties: object.properties.map((property) => property.meaning === "NUMBER"
+        ? { ...property, numericSpec: hydrateNumericSpec(property.numericSpec) }
+        : property),
+    })),
+  };
+}
 
 export function inferCardinality(sourceProperty: OntologyProperty, targetProperty: OntologyProperty): OntologyRelation["cardinality"] {
   if (sourceProperty.unique && targetProperty.unique) return "ONE_TO_ONE";

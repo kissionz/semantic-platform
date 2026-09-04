@@ -293,14 +293,17 @@ p { color: var(--text-2); line-height: 1.65; }
 .batch-table-identity { display: grid; gap: 3px; min-width: 0; }
 .batch-table-identity strong { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .batch-table-identity span { color: var(--text-3); font-size: 10px; }
-.batch-table-config, .relation-form-grid, .composition-grid, .property-editor-grid, .numeric-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.batch-table-config, .relation-form-grid, .composition-grid, .property-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .physical-property { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface-muted); }
 .physical-property > div { min-height: 56px; padding: 9px 12px; display: grid; align-content: center; gap: 3px; border-right: 1px solid var(--border); }
 .physical-property > div:last-child { border-right: 0; }
 .physical-property span { color: var(--text-3); font-size: 9px; }
 .physical-property strong { font: 600 11px "SFMono-Regular", monospace; overflow: hidden; text-overflow: ellipsis; }
 .property-options { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; }
-.numeric-rules { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 2px; }
+.numeric-rules { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; padding-top: 2px; }
+.numeric-rules > * { grid-column: span 3; }
+.numeric-rules.currency .numeric-kind, .numeric-rules.currency .numeric-unit, .numeric-rules.currency .numeric-currency { grid-column: span 2; }
+.numeric-rules.ratio > * { grid-column: span 2; }
 .relation-inference { min-height: 64px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 2px 14px; padding: 11px 14px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 8px; background: var(--accent-soft); }
 .relation-inference > span { grid-row: span 2; padding: 4px 7px; border-radius: 5px; background: var(--accent); color: white; font-size: 9px; font-weight: 700; }
 .relation-inference strong { color: var(--text); font-size: 12px; }
